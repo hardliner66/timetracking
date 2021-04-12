@@ -1,4 +1,5 @@
 use chrono::{prelude::*, serde::ts_seconds, Duration, NaiveDate, NaiveDateTime, NaiveTime};
+use iif::iif;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 #[cfg(feature = "binary")]
@@ -61,7 +62,7 @@ enum Command {
         #[structopt(short)]
         include_seconds: bool,
 
-        /// filter entries on description
+        /// filter entries. possible filter values: "week" or part of the description
         filter: Option<String>,
     },
 
@@ -214,15 +215,29 @@ fn show(
     to: Option<String>,
     filter: Option<String>,
     include_seconds: bool,
-) {
-    let from = from.map(|from| parse_date_or_date_time(&from));
-    let to = match to {
-        Some(s) if s == "all" => None,
-        Some(s) => Some(parse_date_or_date_time(&s)),
-        None => match from {
-            Some(DateOrDateTime::DateTime(from)) => Some(DateOrDateTime::Date(from.date())),
-            from => from,
-        },
+) -> Option<()> {
+    let (filter, from, to) = match filter {
+        Some(from) if from == "week" => {
+            let now = Local::today();
+            let weekday = now.weekday();
+            let offset = weekday.num_days_from_monday();
+            let (from, to) = (offset, 6 - offset);
+            let from = DateOrDateTime::Date(now.with_day(now.day() - from)?.naive_local());
+            let to = DateOrDateTime::Date(now.with_day(now.day() + to)?.naive_local());
+            (None, Some(from), Some(to))
+        }
+        f => {
+            let from = from.map(|from| parse_date_or_date_time(&from));
+            let to = match to {
+                Some(s) if s == "all" => None,
+                Some(s) => Some(parse_date_or_date_time(&s)),
+                None => match from {
+                    Some(DateOrDateTime::DateTime(from)) => Some(DateOrDateTime::Date(from.date())),
+                    from => from,
+                },
+            };
+            (f, from, to)
+        }
     };
     let mut data_iterator = data
         .iter()
@@ -298,28 +313,33 @@ fn show(
     }
     let (hours, minutes, seconds) = split_duration(work_day);
     println!("Work Time: {:02}:{:02}:{:02}", hours, minutes, seconds);
+    Some(())
 }
 
 fn status(data: &[TrackingEvent]) {
     if let Some(event) = data.last() {
         let time = event.time(true);
         let active = event.is_start();
-        let text = if active { "Start" } else { "End" };
+        let text = iif!(active, "Start", "End");
         if let Some(description) = event.description() {
             println!("Description: {}", description,);
             println!("Active: {}", active);
-            println!("{} Time: {:02}:{:02}:{:02}",
+            println!(
+                "{} Time: {:02}:{:02}:{:02}",
                 text,
                 time.hour(),
                 time.minute(),
-                time.second());
+                time.second()
+            );
         } else {
             println!("Active: {}", active);
-            println!("{} Time: {:02}:{:02}:{:02}",
+            println!(
+                "{} Time: {:02}:{:02}:{:02}",
                 text,
                 time.hour(),
                 time.minute(),
-                time.second());
+                time.second()
+            );
         }
     }
 }
@@ -348,7 +368,7 @@ fn main() {
             to,
             filter,
             include_seconds,
-        } => show(&data, from, to, filter, include_seconds),
+        } => show(&data, from, to, filter, include_seconds).unwrap(),
         Command::Status => status(&data),
         #[cfg(feature = "binary")]
         Command::Export { path } => {

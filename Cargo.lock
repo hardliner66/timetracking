@@ -172,6 +172,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "iif"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ed25482c704540064380ad95d8655c0b3eff080daa959c3fc3419f701b68939"
+
+[[package]]
 name = "itoa"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -379,11 +385,12 @@ dependencies = [
 
 [[package]]
 name = "timetracking"
-version = "1.2.1-alpha.0"
+version = "1.2.1"
 dependencies = [
  "bincode",
  "chrono",
  "dirs",
+ "iif",
  "serde",
  "serde_json",
  "structopt",
