@@ -221,9 +221,9 @@ fn show(
             let now = Local::today();
             let weekday = now.weekday();
             let offset = weekday.num_days_from_monday();
-            let (from, to) = (offset, 6 - offset);
-            let from = DateOrDateTime::Date(now.with_day(now.day() - from)?.naive_local());
-            let to = DateOrDateTime::Date(now.with_day(now.day() + to)?.naive_local());
+            let (monday_offset, sunday_offset) = (offset, 6 - offset);
+            let from = DateOrDateTime::Date(now.with_day(now.day() - monday_offset)?.naive_local());
+            let to = DateOrDateTime::Date(now.with_day(now.day() + sunday_offset)?.naive_local());
             (None, Some(from), Some(to))
         }
         f => {
