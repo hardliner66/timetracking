@@ -10,21 +10,35 @@ struct Options {
 
 #[derive(Debug, StructOpt)]
 enum Command {
+    /// start time tracking
     Start {
+        /// a description for the event
         description: Option<String>,
+        /// the time at which the event happend.
+        /// format: "HH:MM:SS" or "YY-MM-DD HH:mm:SS" [defaults to current time]
         #[structopt(short, long)]
         at: Option<String>,
     },
+    /// stop time tracking
     Stop {
+        /// a description for the event
         description: Option<String>,
+        /// the time at which the event happend.
+        /// format: "HH:MM:SS" or "YY-MM-DD HH:mm:SS" [defaults to current time]
         #[structopt(short, long)]
         at: Option<String>,
     },
+    /// start time tracking with last description
     Continue,
+    /// list all entries
     List,
+    /// show path to data file
     Path,
+    /// show work time for given timespan
     Show {
+        /// the start time [defaults to current day 00:00:00]
         start: Option<String>,
+        /// the stop time [defaults to start day 23:59:59]
         stop: Option<String>,
     },
 }
@@ -89,12 +103,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(event) => event.is_stop(),
             };
             if should_add {
-            data.push(TrackingEvent::Start(TrackingData {
-                description,
-                time: at.map(parse_date_time).unwrap_or(Local::now().into()),
-            }));
+                data.push(TrackingEvent::Start(TrackingData {
+                    description,
+                    time: at.map(parse_date_time).unwrap_or(Local::now().into()),
+                }));
             }
-        },
+        }
         Stop { description, at } => {
             let should_add = match data.last() {
                 None => true,
@@ -112,13 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(TrackingEvent::Start(TrackingData { description, .. })) = data
                     .iter()
                     .rev()
-                    .skip_while(|t| {
-                        if let TrackingEvent::Stop { .. } = t {
-                            true
-                        } else {
-                            false
-                        }
-                    })
+                    .skip_while(|t| t.is_stop())
                     .next()
                     .cloned()
                 {
@@ -127,6 +135,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         time: Local::now().into(),
                     }))
                 }
+            } else {
+                eprintln!("Time tracking couldn't be continued, because there are no entries. Use the start command instead!");
             }
         }
         List => data.iter().for_each(|e| println!("{:?}", e)),
@@ -177,11 +187,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match (start, stop) {
                     (Some(start), Some(stop)) => {
                         let duration = stop.time() - start.time();
-                        work_day = work_day.checked_add(&duration).expect("couldn't add up durations");
+                        work_day = work_day
+                            .checked_add(&duration)
+                            .expect("couldn't add up durations");
                     }
                     (Some(start), None) => {
                         let duration = Utc::now() - start.time();
-                        work_day = work_day.checked_add(&duration).expect("couldn't add up durations");
+                        work_day = work_day
+                            .checked_add(&duration)
+                            .expect("couldn't add up durations");
                         break;
                     }
                     (_, _) => break,
@@ -209,15 +223,21 @@ fn parse_date_time(s: String) -> DateTime<Utc> {
         let date_time = today.and_time(time).unwrap();
         return date_time.with_timezone(&Utc);
     }
-    let date_time = NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S").unwrap();
-    TimeZone::from_local_datetime(&Local, &date_time).unwrap().with_timezone(&Utc)
+    let date_time =
+        NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S").unwrap();
+    TimeZone::from_local_datetime(&Local, &date_time)
+        .unwrap()
+        .with_timezone(&Utc)
 }
 
 fn parse_date_or_date_time(s: String) -> DateOrDateTime {
     if let Ok(date) = NaiveDate::parse_from_str(&s, "%Y-%m-%d") {
         return DateOrDateTime::Date(date);
     }
-    NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S")
+    if let Ok(date) = NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S")
         .map(DateOrDateTime::DateTime)
-        .unwrap()
+    {
+        return date;
+    }
+    DateOrDateTime::Date(Local::today().naive_local())
 }
