@@ -18,7 +18,7 @@ enum Command {
         /// a description for the event
         description: Option<String>,
         /// the time at which the event happend.
-        /// format: "HH:MM:SS" or "YY-MM-DD HH:mm:SS" [defaults to current time]
+        /// format: "HH:MM:SS" or "YY-mm-dd HH:MM:SS" [defaults to current time]
         #[structopt(short, long)]
         at: Option<String>,
     },
@@ -27,7 +27,7 @@ enum Command {
         /// a description for the event
         description: Option<String>,
         /// the time at which the event happend.
-        /// format: "HH:MM:SS" or "YY-MM-DD HH:mm:SS" [defaults to current time]
+        /// format: "HH:MM:SS" or "YY-mm-dd HH:MM:SS" [defaults to current time]
         #[structopt(short, long)]
         at: Option<String>,
     },
@@ -40,9 +40,12 @@ enum Command {
     /// show work time for given timespan
     Show {
         /// the start time [defaults to current day 00:00:00]
-        start: Option<String>,
+        #[structopt(short, long)]
+        from: Option<String>,
         /// the stop time [defaults to start day 23:59:59]
-        stop: Option<String>,
+        #[structopt(short, long)]
+        to: Option<String>,
+        filter: Option<String>,
     },
     #[cfg(feature = "binary")]
     /// export the file as json
@@ -163,41 +166,55 @@ fn continue_tracking(data: &mut Vec<TrackingEvent>) {
     }
 }
 
-fn show(data: &mut Vec<TrackingEvent>, start: Option<String>, stop: Option<String>) {
-    let start = start.map(|start| parse_date_or_date_time(&start));
-    let stop = match stop {
+fn show(
+    data: &mut Vec<TrackingEvent>,
+    from: Option<String>,
+    to: Option<String>,
+    filter: Option<String>,
+) {
+    let from = from.map(|from| parse_date_or_date_time(&from));
+    let to = match to {
         Some(s) if s == "all" => None,
         Some(s) => Some(parse_date_or_date_time(&s)),
-        None => match start {
-            Some(DateOrDateTime::DateTime(start)) => Some(DateOrDateTime::Date(start.date())),
-            start => start,
+        None => match from {
+            Some(DateOrDateTime::DateTime(from)) => Some(DateOrDateTime::Date(from.date())),
+            from => from,
         },
     };
     let mut data_iterator = data
         .iter()
-        .filter(|entry| match start {
+        .filter(|entry| match from {
             None => true,
-            Some(DateOrDateTime::Date(start)) => {
-                (*entry).time().timestamp_millis()
-                    >= start
-                        .and_time(NaiveTime::from_hms(0, 0, 0))
+            Some(DateOrDateTime::Date(from)) => {
+                entry.time().timestamp_millis()
+                    >= TimeZone::from_local_date(&Local, &from).unwrap()
+                        .and_time(NaiveTime::from_hms(0, 0, 0)).unwrap()
                         .timestamp_millis()
             }
-            Some(DateOrDateTime::DateTime(start)) => {
-                entry.time().timestamp_millis() >= start.timestamp_millis()
+            Some(DateOrDateTime::DateTime(from)) => {
+                entry.time().timestamp_millis() >= TimeZone::from_local_datetime(&Local, &from).unwrap().timestamp_millis()
             }
         })
-        .filter(|entry| match stop {
+        .filter(|entry| match to {
             None => true,
-            Some(DateOrDateTime::Date(stop)) => {
+            Some(DateOrDateTime::Date(to)) => {
                 entry.time().timestamp_millis()
-                    <= stop
-                        .and_time(NaiveTime::from_hms(23, 59, 59))
+                    <= TimeZone::from_local_date(&Local, &to).unwrap()
+                        .and_time(NaiveTime::from_hms(23, 59, 59)).unwrap()
                         .timestamp_millis()
             }
-            Some(DateOrDateTime::DateTime(stop)) => {
-                entry.time().timestamp_millis() <= stop.timestamp_millis()
+            Some(DateOrDateTime::DateTime(to)) => {
+                entry.time().timestamp_millis() <= TimeZone::from_local_datetime(&Local, &to).unwrap().timestamp_millis()
             }
+        })
+        .filter(|entry| match entry {
+            TrackingEvent::Start(TrackingData { description, .. })
+            | TrackingEvent::Stop(TrackingData { description, .. }) => match (&filter, description)
+            {
+                (Some(filter), Some(description)) => description == filter,
+                (None, _) => true,
+                _ => false,
+            },
         })
         .skip_while(|entry| TrackingEvent::is_stop(entry));
     let mut work_day = Duration::zero();
@@ -249,7 +266,7 @@ fn main() {
         Command::Continue => continue_tracking(&mut data),
         Command::List => data.iter().for_each(|e| println!("{:?}", e)),
         Command::Path => println!("{}", path.to_string_lossy()),
-        Command::Show { start, stop } => show(&mut data, start, stop),
+        Command::Show { from, to, filter } => show(&mut data, from, to, filter),
         #[cfg(feature = "binary")]
         Command::Export { path } => {
             write_data_json(path, &data);
@@ -300,6 +317,37 @@ fn parse_date_or_date_time(s: &str) -> DateOrDateTime {
     }
     if let Ok(date) =
         NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S").map(DateOrDateTime::DateTime)
+    {
+        return date;
+    }
+    if let Ok(date) = NaiveTime::parse_from_str(&s, "%H:%M:%S")
+        .map(|time| Local::today().and_time(time).unwrap())
+        .map(|date_time| date_time.naive_local())
+        .map(DateOrDateTime::DateTime)
+    {
+        return date;
+    }
+    if let Ok(date) = NaiveTime::parse_from_str(&format!("{}:0", s), "%H:%M:%S")
+        .map(|time| Local::today().and_time(time).unwrap())
+        .map(|date_time| date_time.naive_local())
+        .map(DateOrDateTime::DateTime)
+    {
+        return date;
+    }
+    if let Ok(date) = NaiveTime::parse_from_str(&format!("{}:0:0", s), "%H:%M:%S")
+        .map(|time| Local::today().and_time(time).unwrap())
+        .map(|date_time| date_time.naive_local())
+        .map(DateOrDateTime::DateTime)
+    {
+        return date;
+    }
+    if let Ok(date) = NaiveDateTime::parse_from_str(&format!("{}:0", s), "%Y-%m-%d %H:%M:%S")
+        .map(DateOrDateTime::DateTime)
+    {
+        return date;
+    }
+    if let Ok(date) = NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S")
+        .map(DateOrDateTime::DateTime)
     {
         return date;
     }
