@@ -1,3 +1,4 @@
+use std::path::Path;
 use chrono::{prelude::*, serde::ts_seconds, Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
@@ -86,14 +87,42 @@ enum DateOrDateTime {
     DateTime(NaiveDateTime),
 }
 
+#[cfg(feature="binary")]
+fn read_data<P: AsRef<Path>>(path: P) -> Vec<TrackingEvent> {
+    let data = std::fs::read(&path).unwrap_or_default();
+    bincode::deserialize(&data).unwrap_or_default()
+}
+
+#[cfg(not(feature="binary"))]
+fn read_data<P: AsRef<Path>>(path: P) -> Vec<TrackingEvent> {
+    let data = std::fs::read_to_string(&path).unwrap_or_default();
+    serde_json::from_str(&data).unwrap_or_default()
+}
+
+#[cfg(feature="binary")]
+fn write_data<P: AsRef<Path>>(path: P, data: Vec<TrackingEvent>) {
+    let data = bincode::serialize(&data).expect("could not serialize data");
+    std::fs::write(path, data).expect("could not write data file");
+}
+
+#[cfg(not(feature="binary"))]
+fn write_data<P: AsRef<Path>>(path: P, data: Vec<TrackingEvent>) {
+    let data = serde_json::to_string(&data).expect("could not serialize data");
+    std::fs::write(path, data).expect("could not write data file");
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let Options { command } = Options::from_args();
 
     let mut path = dirs::home_dir().unwrap_or(".".into());
-    path.push("timetracking.json");
 
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut data: Vec<TrackingEvent> = serde_json::from_str(&text).unwrap_or_default();
+    if cfg!(feature="binary") {
+        path.push("timetracking.bin");
+    } else {
+        path.push("timetracking.json");
+    }
+
+    let mut data = read_data(&path);
 
     use Command::*;
     match command {
@@ -213,15 +242,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => unimplemented!(),
     }
 
-    std::fs::write(path, serde_json::to_string(&data)?)?;
+    write_data(path, data);
     Ok(())
 }
 
 fn parse_date_time(s: String) -> DateTime<Utc> {
-    if let Ok(time) = NaiveTime::parse_from_str(&s, "%H:%M:%S") {
+    if let Ok(time) = NaiveTime::parse_from_str(&format!("{}", s), "%H:%M:%S") {
         let today = Local::today();
         let date_time = today.and_time(time).unwrap();
         return date_time.with_timezone(&Utc);
+    }
+    if let Ok(time) = NaiveTime::parse_from_str(&format!("{}:0", s), "%H:%M:%S") {
+        let today = Local::today();
+        let date_time = today.and_time(time).unwrap();
+        return date_time.with_timezone(&Utc);
+    }
+    if let Ok(time) = NaiveTime::parse_from_str(&format!("{}:0:0", s), "%H:%M:%S") {
+        let today = Local::today();
+        let date_time = today.and_time(time).unwrap();
+        return date_time.with_timezone(&Utc);
+    }
+    if let Ok(date_time) = NaiveDateTime::parse_from_str(&format!("{}", s), "%Y-%m-%d %H:%M:%S") {
+        return TimeZone::from_local_datetime(&Local, &date_time)
+            .unwrap()
+            .with_timezone(&Utc);
+    }
+    if let Ok(date_time) = NaiveDateTime::parse_from_str(&format!("{}:0", s), "%Y-%m-%d %H:%M:%S") {
+        return TimeZone::from_local_datetime(&Local, &date_time)
+            .unwrap()
+            .with_timezone(&Utc);
     }
     let date_time =
         NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S").unwrap();
@@ -234,7 +283,7 @@ fn parse_date_or_date_time(s: String) -> DateOrDateTime {
     if let Ok(date) = NaiveDate::parse_from_str(&s, "%Y-%m-%d") {
         return DateOrDateTime::Date(date);
     }
-    if let Ok(date) = NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S")
+    if let Ok(date) = NaiveDateTime::parse_from_str(&format!("{}", s), "%Y-%m-%d %H:%M:%S")
         .map(DateOrDateTime::DateTime)
     {
         return date;
