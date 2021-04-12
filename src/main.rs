@@ -34,7 +34,7 @@ enum Command {
         #[structopt(short, long)]
         at: Option<String>,
     },
-    
+
     /// continue time tracking with last description
     Continue,
 
@@ -94,7 +94,7 @@ impl TrackingEvent {
                 } else {
                     time.with_second(0).expect("could not set seconds to zero")
                 }
-            },
+            }
         }
     }
 
@@ -210,24 +210,34 @@ fn show(
             None => true,
             Some(DateOrDateTime::Date(from)) => {
                 entry.time(true).timestamp_millis()
-                    >= TimeZone::from_local_date(&Local, &from).unwrap()
-                        .and_time(NaiveTime::from_hms(0, 0, 0)).unwrap()
+                    >= TimeZone::from_local_date(&Local, &from)
+                        .unwrap()
+                        .and_time(NaiveTime::from_hms(0, 0, 0))
+                        .unwrap()
                         .timestamp_millis()
             }
             Some(DateOrDateTime::DateTime(from)) => {
-                entry.time(true).timestamp_millis() >= TimeZone::from_local_datetime(&Local, &from).unwrap().timestamp_millis()
+                entry.time(true).timestamp_millis()
+                    >= TimeZone::from_local_datetime(&Local, &from)
+                        .unwrap()
+                        .timestamp_millis()
             }
         })
         .filter(|entry| match to {
             None => true,
             Some(DateOrDateTime::Date(to)) => {
                 entry.time(true).timestamp_millis()
-                    <= TimeZone::from_local_date(&Local, &to).unwrap()
-                        .and_time(NaiveTime::from_hms(23, 59, 59)).unwrap()
+                    <= TimeZone::from_local_date(&Local, &to)
+                        .unwrap()
+                        .and_time(NaiveTime::from_hms(23, 59, 59))
+                        .unwrap()
                         .timestamp_millis()
             }
             Some(DateOrDateTime::DateTime(to)) => {
-                entry.time(true).timestamp_millis() <= TimeZone::from_local_datetime(&Local, &to).unwrap().timestamp_millis()
+                entry.time(true).timestamp_millis()
+                    <= TimeZone::from_local_datetime(&Local, &to)
+                        .unwrap()
+                        .timestamp_millis()
             }
         })
         .filter(|entry| match entry {
@@ -294,7 +304,12 @@ fn main() {
         Command::Continue => continue_tracking(&mut data),
         Command::List => data.iter().for_each(|e| println!("{:?}", e)),
         Command::Path => println!("{}", path.to_string_lossy()),
-        Command::Show { from, to, filter, include_seconds } => show(&mut data, from, to, filter, include_seconds),
+        Command::Show {
+            from,
+            to,
+            filter,
+            include_seconds,
+        } => show(&mut data, from, to, filter, include_seconds),
         #[cfg(feature = "binary")]
         Command::Export { path } => {
             write_data_json(path, &data);
@@ -374,10 +389,7 @@ fn parse_date_or_date_time(s: &str) -> DateOrDateTime {
     {
         return date;
     }
-    if let Ok(date) = NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S")
+    NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S")
         .map(DateOrDateTime::DateTime)
-    {
-        return date;
-    }
-    DateOrDateTime::Date(Local::today().naive_local())
+        .unwrap()
 }
