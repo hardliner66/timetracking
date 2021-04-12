@@ -13,6 +13,9 @@ struct Options {
 
 #[derive(Debug, StructOpt)]
 enum Command {
+    /// show info from the latest entry
+    Status,
+
     /// start time tracking
     Start {
         /// a description for the event
@@ -95,6 +98,13 @@ impl TrackingEvent {
                     time.with_second(0).expect("could not set seconds to zero")
                 }
             }
+        }
+    }
+
+    fn description(&self) -> Option<String> {
+        match self {
+            Self::Start(TrackingData { description, .. })
+            | Self::Stop(TrackingData { description, .. }) => description.clone(),
         }
     }
 
@@ -188,8 +198,18 @@ fn continue_tracking(data: &mut Vec<TrackingEvent>) {
     }
 }
 
+fn split_duration(duration: Duration) -> (i64, i64, i64) {
+    let hours = duration.num_hours();
+    let hours_in_minutes = hours * 60;
+    let hours_in_seconds = hours_in_minutes * 60;
+    let minutes = duration.num_minutes() - hours_in_minutes;
+    let minutes_in_seconds = minutes * 60;
+    let seconds = duration.num_seconds() - hours_in_seconds - minutes_in_seconds;
+    (hours, minutes, seconds)
+}
+
 fn show(
-    data: &mut Vec<TrackingEvent>,
+    data: &[TrackingEvent],
     from: Option<String>,
     to: Option<String>,
     filter: Option<String>,
@@ -276,13 +296,32 @@ fn show(
             (_, _) => break,
         }
     }
-    let hours = work_day.num_hours();
-    let hours_in_minutes = hours * 60;
-    let hours_in_seconds = hours_in_minutes * 60;
-    let minutes = work_day.num_minutes() - hours_in_minutes;
-    let minutes_in_seconds = minutes * 60;
-    let seconds = work_day.num_seconds() - hours_in_seconds - minutes_in_seconds;
+    let (hours, minutes, seconds) = split_duration(work_day);
     println!("Work Time: {:02}:{:02}:{:02}", hours, minutes, seconds);
+}
+
+fn status(data: &[TrackingEvent]) {
+    if let Some(event) = data.last() {
+        let time = event.time(true);
+        let active = event.is_start();
+        let text = if active { "Start" } else { "End" };
+        if let Some(description) = event.description() {
+            println!("Description: {}", description,);
+            println!("Active: {}", active);
+            println!("{} Time: {:02}:{:02}:{:02}",
+                text,
+                time.hour(),
+                time.minute(),
+                time.second());
+        } else {
+            println!("Active: {}", active);
+            println!("{} Time: {:02}:{:02}:{:02}",
+                text,
+                time.hour(),
+                time.minute(),
+                time.second());
+        }
+    }
 }
 
 fn main() {
@@ -309,7 +348,8 @@ fn main() {
             to,
             filter,
             include_seconds,
-        } => show(&mut data, from, to, filter, include_seconds),
+        } => show(&data, from, to, filter, include_seconds),
+        Command::Status => status(&data),
         #[cfg(feature = "binary")]
         Command::Export { path } => {
             write_data_json(path, &data);
