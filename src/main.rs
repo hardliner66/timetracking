@@ -17,36 +17,51 @@ enum Command {
     Start {
         /// a description for the event
         description: Option<String>,
+
         /// the time at which the event happend.
         /// format: "HH:MM:SS" or "YY-mm-dd HH:MM:SS" [defaults to current time]
         #[structopt(short, long)]
         at: Option<String>,
     },
+
     /// stop time tracking
     Stop {
         /// a description for the event
         description: Option<String>,
+
         /// the time at which the event happend.
         /// format: "HH:MM:SS" or "YY-mm-dd HH:MM:SS" [defaults to current time]
         #[structopt(short, long)]
         at: Option<String>,
     },
+    
     /// continue time tracking with last description
     Continue,
+
     /// list all entries
     List,
+
     /// show path to data file
     Path,
+
     /// show work time for given timespan
     Show {
         /// the start time [defaults to current day 00:00:00]
         #[structopt(short, long)]
         from: Option<String>,
+
         /// the stop time [defaults to start day 23:59:59]
         #[structopt(short, long)]
         to: Option<String>,
+
+        /// include seconds in time calculation
+        #[structopt(short)]
+        include_seconds: bool,
+
+        /// filter entries on description
         filter: Option<String>,
     },
+
     #[cfg(feature = "binary")]
     /// export the file as json
     Export {
@@ -70,9 +85,16 @@ enum TrackingEvent {
 }
 
 impl TrackingEvent {
-    fn time(&self) -> DateTime<Utc> {
+    fn time(&self, include_seconds: bool) -> DateTime<Utc> {
         match self {
-            Self::Start(TrackingData { time, .. }) | Self::Stop(TrackingData { time, .. }) => *time,
+            Self::Start(TrackingData { time, .. }) | Self::Stop(TrackingData { time, .. }) => {
+                let time = *time;
+                if include_seconds {
+                    time
+                } else {
+                    time.with_second(0).expect("could not set seconds to zero")
+                }
+            },
         }
     }
 
@@ -171,6 +193,7 @@ fn show(
     from: Option<String>,
     to: Option<String>,
     filter: Option<String>,
+    include_seconds: bool,
 ) {
     let from = from.map(|from| parse_date_or_date_time(&from));
     let to = match to {
@@ -186,32 +209,32 @@ fn show(
         .filter(|entry| match from {
             None => true,
             Some(DateOrDateTime::Date(from)) => {
-                entry.time().timestamp_millis()
+                entry.time(true).timestamp_millis()
                     >= TimeZone::from_local_date(&Local, &from).unwrap()
                         .and_time(NaiveTime::from_hms(0, 0, 0)).unwrap()
                         .timestamp_millis()
             }
             Some(DateOrDateTime::DateTime(from)) => {
-                entry.time().timestamp_millis() >= TimeZone::from_local_datetime(&Local, &from).unwrap().timestamp_millis()
+                entry.time(true).timestamp_millis() >= TimeZone::from_local_datetime(&Local, &from).unwrap().timestamp_millis()
             }
         })
         .filter(|entry| match to {
             None => true,
             Some(DateOrDateTime::Date(to)) => {
-                entry.time().timestamp_millis()
+                entry.time(true).timestamp_millis()
                     <= TimeZone::from_local_date(&Local, &to).unwrap()
                         .and_time(NaiveTime::from_hms(23, 59, 59)).unwrap()
                         .timestamp_millis()
             }
             Some(DateOrDateTime::DateTime(to)) => {
-                entry.time().timestamp_millis() <= TimeZone::from_local_datetime(&Local, &to).unwrap().timestamp_millis()
+                entry.time(true).timestamp_millis() <= TimeZone::from_local_datetime(&Local, &to).unwrap().timestamp_millis()
             }
         })
         .filter(|entry| match entry {
             TrackingEvent::Start(TrackingData { description, .. })
             | TrackingEvent::Stop(TrackingData { description, .. }) => match (&filter, description)
             {
-                (Some(filter), Some(description)) => description == filter,
+                (Some(filter), Some(description)) => description.contains(filter),
                 (None, _) => true,
                 _ => false,
             },
@@ -223,13 +246,18 @@ fn show(
         let stop = data_iterator.next();
         match (start, stop) {
             (Some(start), Some(stop)) => {
-                let duration = stop.time() - start.time();
+                let duration = stop.time(include_seconds) - start.time(include_seconds);
                 work_day = work_day
                     .checked_add(&duration)
                     .expect("couldn't add up durations");
             }
             (Some(start), None) => {
-                let duration = Utc::now() - start.time();
+                let now = if include_seconds {
+                    Utc::now()
+                } else {
+                    Utc::now().with_second(0).unwrap()
+                };
+                let duration = now - start.time(include_seconds);
                 work_day = work_day
                     .checked_add(&duration)
                     .expect("couldn't add up durations");
@@ -266,7 +294,7 @@ fn main() {
         Command::Continue => continue_tracking(&mut data),
         Command::List => data.iter().for_each(|e| println!("{:?}", e)),
         Command::Path => println!("{}", path.to_string_lossy()),
-        Command::Show { from, to, filter } => show(&mut data, from, to, filter),
+        Command::Show { from, to, filter, include_seconds } => show(&mut data, from, to, filter, include_seconds),
         #[cfg(feature = "binary")]
         Command::Export { path } => {
             write_data_json(path, &data);
