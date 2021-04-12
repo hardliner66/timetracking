@@ -2,6 +2,8 @@
 
 Simple command line time tracking application.
 
+[![Crates.io](https://img.shields.io/crates/v/timetracking)](https://crates.io/crates/timetracking)
+
 ## Install
 ```sh
 cargo install timetracking
