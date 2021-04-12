@@ -31,7 +31,7 @@ enum Command {
         #[structopt(short, long)]
         at: Option<String>,
     },
-    /// start time tracking with last description
+    /// continue time tracking with last description
     Continue,
     /// list all entries
     List,

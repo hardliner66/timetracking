@@ -9,8 +9,6 @@ cargo install timetracking
 
 ## Commandline
 ```sh
-timetracking 1.0.0
-
 USAGE:
     tt <SUBCOMMAND>
 
@@ -19,7 +17,7 @@ FLAGS:
     -V, --version    Prints version information
 
 SUBCOMMANDS:
-    continue    start time tracking with last description
+    continue    continue time tracking with last description
     export      export the file as json
     help        Prints this message or the help of the given subcommand(s)
     list        list all entries
