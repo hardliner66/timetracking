@@ -318,7 +318,7 @@ fn show(
 
 fn status(data: &[TrackingEvent]) {
     if let Some(event) = data.last() {
-        let time = event.time(true);
+        let time = event.time(true).with_timezone(&Local);
         let active = event.is_start();
         let text = iif!(active, "Start", "End");
         if let Some(description) = event.description() {
