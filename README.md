@@ -2,6 +2,11 @@
 
 Simple command line time tracking application.
 
+## Install
+```sh
+cargo install timetracking
+```
+
 ## Commandline
 ```sh
 timetracking 1.0.0
