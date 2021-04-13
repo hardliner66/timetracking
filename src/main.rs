@@ -16,7 +16,7 @@ struct Options {
     data_file: Option<PathBuf>,
 
     #[structopt(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Debug, StructOpt)]
@@ -458,7 +458,12 @@ fn main() {
         .to_string();
     let mut data = read_data(&expanded_path);
 
-    let data_changed = match command {
+    let data_changed = match command.unwrap_or_else(|| Command::Show {
+        from: None,
+        to: None,
+        filter: None,
+        include_seconds: false,
+    }) {
         Command::Start { description, at } => {
             start_tracking(&mut data, description, at);
             true
@@ -493,10 +498,10 @@ fn main() {
             false
         }
         #[cfg(not(feature = "binary"))]
-        Command::Export {
-            path
-        } => {
-            let expanded_path = shellexpand::full(&path.to_string_lossy()).expect("could not expand path").to_string();
+        Command::Export { path } => {
+            let expanded_path = shellexpand::full(&path.to_string_lossy())
+                .expect("could not expand path")
+                .to_string();
             export_human_readable(expanded_path, &data);
             false
         }
@@ -507,7 +512,9 @@ fn main() {
             readable,
             pretty,
         } => {
-            let expanded_path = shellexpand::full(&path.to_string_lossy()).expect("could not expand path").to_string();
+            let expanded_path = shellexpand::full(&path.to_string_lossy())
+                .expect("could not expand path")
+                .to_string();
             if readable {
                 export_human_readable(expanded_path, &data);
             } else {
