@@ -36,7 +36,7 @@ jobs:
       run: cargo test --verbose
 
     - name: Run build
-      run: cargo build --release && strip --strip-all ./target/release/tt
+      run: cargo build --release && strip --strip-all ./target/release/tt && mv ./target/release/tt ./target/release/tt-linux
 
     - name: Upload release
       id: upload-release-linux
@@ -45,7 +45,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_paths: '["./target/release/tt"]'
+        asset_paths: '["./target/release/tt-linux"]'
 
 
   build-macos:
@@ -58,16 +58,16 @@ jobs:
       run: cargo test --verbose
 
     - name: Run build
-      run: cargo build --release
+      run: cargo build --release && mv ./target/release/tt ./target/release/tt-macos
 
     - name: Upload release
-      id: upload-release-macos
+      id: upload-release-linux
       uses: alexellis/upload-assets@0.2.3
       env: 
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_paths: '["./target/release/tt"]'
+        asset_paths: '["./target/release/tt-macos"]'
 
 
   build-windows:
@@ -80,8 +80,6 @@ jobs:
       run: cargo test --verbose
 
     - name: Run build
-      env:
-        RUSTFLAGS: -C target-feature=+crt-static
       run: cargo build --release
 
     - name: Upload release
