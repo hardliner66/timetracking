@@ -1,0 +1,94 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - v*
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Create release
+      id: create_release
+      uses: actions/create-release@latest
+      env: 
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Run tests
+      run: cargo test --verbose
+
+    - name: Run build
+      run: cargo build --release && strip --strip-all ./target/release/tt
+
+    - name: Upload release
+      id: upload-release-linux
+      uses: alexellis/upload-assets@0.2.3
+      env: 
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_paths: '["./target/release/tt"]'
+
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Run tests
+      run: cargo test --verbose
+
+    - name: Run build
+      run: cargo build --release
+
+    - name: Upload release
+      id: upload-release-macos
+      uses: alexellis/upload-assets@0.2.3
+      env: 
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_paths: '["./target/release/tt"]'
+
+
+  build-windows:
+    runs-on: windows-2019
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Run tests
+      run: cargo test --verbose
+
+    - name: Run build
+      env:
+        RUSTFLAGS: -C target-feature=+crt-static
+      run: cargo build --release
+
+    - name: Upload release
+      id: upload-release-windows
+      uses: alexellis/upload-assets@0.2.3
+      env: 
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_paths: '["./target/release/tt.exe"]'
