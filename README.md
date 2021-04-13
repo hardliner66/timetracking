@@ -12,20 +12,20 @@ cargo install timetracking
 ## Commandline
 ```
 USAGE:
-    tt [OPTIONS] <SUBCOMMAND>
+    tt [data-file] <SUBCOMMAND>
 
 FLAGS:
     -h, --help       Prints help information
     -V, --version    Prints version information
 
-OPTIONS:
-    -d, --data-file <data-file>    which data file to use
+ARGS:
+    <data-file>    which data file to use. [default: ~/timetracking.bin]
 
 SUBCOMMANDS:
     continue    continue time tracking with last description
-    export      export the file as json
+    export      export data to file
     help        Prints this message or the help of the given subcommand(s)
-    import      
+    import      import data from json file
     list        list all entries
     path        show path to data file
     show        show work time for given timespan

@@ -6,7 +6,12 @@ use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 struct Options {
-    /// which data file to use
+    #[cfg(feature = "binary")]
+    /// which data file to use. [default: ~/timetracking.bin]
+    data_file: Option<PathBuf>,
+
+    #[cfg(not(feature = "binary"))]
+    /// which data file to use. [default: ~/timetracking.json]
     #[structopt(short, long)]
     data_file: Option<PathBuf>,
 
@@ -68,13 +73,14 @@ enum Command {
         filter: Option<String>,
     },
     #[cfg(not(feature = "binary"))]
+    /// export data to file
     Export {
         /// where to write the output file
         path: PathBuf,
     },
 
     #[cfg(feature = "binary")]
-    /// export the file as json
+    /// export data to file
     Export {
         /// export in a human readable format. This format is for human reading only and cannot be
         /// imported
@@ -87,6 +93,7 @@ enum Command {
         path: PathBuf,
     },
     #[cfg(feature = "binary")]
+    /// import data from json file
     Import {
         /// which file to import
         path: PathBuf,
@@ -376,8 +383,8 @@ fn status(data: &[TrackingEvent]) {
         let active = event.is_start();
         let text = iif!(active, "Start", "End");
         if let Some(description) = event.description() {
-            println!("Description: {}", description,);
             println!("Active: {}", active);
+            println!("Description: {}", description,);
             println!(
                 "{} Time: {:02}:{:02}:{:02}",
                 text,
