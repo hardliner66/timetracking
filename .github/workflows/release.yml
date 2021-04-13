@@ -80,6 +80,8 @@ jobs:
       run: cargo test --verbose
 
     - name: Run build
+      env: 
+        RUSTFLAGS: -C target-feature=+crt-static
       run: cargo build --release
 
     - name: Upload release
