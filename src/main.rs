@@ -227,16 +227,19 @@ fn show(
             (None, Some(from), Some(to))
         }
         f => {
-            let from = from.map(|from| parse_date_or_date_time(&from));
-            let to = match to {
-                Some(s) if s == "all" => None,
+            let from = match &from {
                 Some(s) => Some(parse_date_or_date_time(&s)),
+                None => None,
+            }.unwrap_or_else(||DateOrDateTime::Date(Local::today().naive_local()));
+
+            let to = match to {
+                Some(s) => parse_date_or_date_time(&s),
                 None => match from {
-                    Some(DateOrDateTime::DateTime(from)) => Some(DateOrDateTime::Date(from.date())),
+                    DateOrDateTime::DateTime(from) => DateOrDateTime::Date(from.date()),
                     from => from,
                 },
             };
-            (f, from, to)
+            (f, Some(from), Some(to))
         }
     };
     let mut data_iterator = data
