@@ -38,6 +38,8 @@ SUBCOMMANDS:
 
 You can use the following snippet to show how much you worked today,
 while the time tracking is running.
+
+Just add it to your starship config (e.g.: ~/.config/starship.toml)
 ```yaml
 [custom.worktime]
 command = "tt show"
