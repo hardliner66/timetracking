@@ -33,3 +33,14 @@ SUBCOMMANDS:
     status      show info from the latest entry
     stop        stop time tracking
 ```
+
+## Starship
+
+You can use the following snippet to show how much you worked today,
+while the time tracking is running.
+```yaml
+[custom.worktime]
+command = "tt show"
+when = "tt status"
+shell = "sh"
+```
