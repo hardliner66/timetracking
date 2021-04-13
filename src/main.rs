@@ -62,7 +62,7 @@ enum Command {
         #[structopt(short)]
         include_seconds: bool,
 
-        /// filter entries. possible filter values: "week" or part of the description
+        /// filter entries. possible filter values: "week", "all" or part of the description
         filter: Option<String>,
     },
 
