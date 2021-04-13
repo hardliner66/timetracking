@@ -8,6 +8,10 @@ use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 struct Options {
+    /// which data file to use
+    #[structopt(short, long)]
+    data_file: Option<PathBuf>,
+
     #[structopt(subcommand)]
     command: Command,
 }
@@ -409,37 +413,67 @@ fn to_human_readable(prefix: &str, time: &DateTime<Utc>, description: Option<Str
 }
 
 fn main() {
-    let Options { command } = Options::from_args();
+    let Options { command, data_file } = Options::from_args();
 
-    let mut path = dirs::home_dir().unwrap_or_else(|| ".".into());
+    let path = match data_file {
+        Some(path) => path,
+        None => {
+            let mut path = dirs::home_dir().unwrap_or_else(|| ".".into());
 
-    if cfg!(feature = "binary") {
-        path.push("timetracking.bin");
-    } else {
-        path.push("timetracking.json");
-    }
+            if cfg!(feature = "binary") {
+                path.push("timetracking.bin");
+            } else {
+                path.push("timetracking.json");
+            }
+            path
+        }
+    };
+    let expanded_path = shellexpand::full(&path.to_string_lossy())
+        .expect("could not expand path")
+        .to_string();
+    let mut data = read_data(&expanded_path);
 
-    let mut data = read_data(&path);
-
-    match command {
-        Command::Start { description, at } => start_tracking(&mut data, description, at),
-        Command::Stop { description, at } => stop_tracking(&mut data, description, at),
-        Command::Continue => continue_tracking(&mut data),
-        Command::List => data.iter().for_each(|e| println!("{:?}", e)),
-        Command::Path => println!("{}", path.to_string_lossy()),
+    let data_changed = match command {
+        Command::Start { description, at } => {
+            start_tracking(&mut data, description, at);
+            true
+        }
+        Command::Stop { description, at } => {
+            stop_tracking(&mut data, description, at);
+            true
+        }
+        Command::Continue => {
+            continue_tracking(&mut data);
+            true
+        }
+        Command::List => {
+            data.iter().for_each(|e| println!("{:?}", e));
+            false
+        }
+        Command::Path => {
+            println!("{}", expanded_path);
+            false
+        }
         Command::Show {
             from,
             to,
             filter,
             include_seconds,
-        } => show(&data, from, to, filter, include_seconds).unwrap(),
-        Command::Status => status(&data),
+        } => {
+            show(&data, from, to, filter, include_seconds).unwrap();
+            false
+        }
+        Command::Status => {
+            status(&data);
+            false
+        }
         #[cfg(feature = "binary")]
         Command::Export {
             path,
             readable,
             pretty,
         } => {
+            let expanded_path = shellexpand::full(&path.to_string_lossy()).expect("could not expand path").to_string();
             if readable {
                 let lines = data
                     .iter()
@@ -452,18 +486,24 @@ fn main() {
                         }
                     })
                     .collect::<Vec<_>>();
-                std::fs::write(path, lines.join("\n")).expect("could not export file");
+                std::fs::write(expanded_path, lines.join("\n")).expect("could not export file");
             } else {
-                write_json_data(path, &data, pretty);
+                write_json_data(expanded_path, &data, pretty);
             }
+            false
         }
         #[cfg(feature = "binary")]
-        Command::Import { path } => data = read_json_data(path),
+        Command::Import { path } => {
+            data = read_json_data(path);
+            true
+        }
         #[allow(unreachable_patterns)]
         _ => unimplemented!(),
-    }
+    };
 
-    write_data(path, &data);
+    if data_changed {
+        write_data(expanded_path, &data);
+    }
 }
 
 fn parse_date_time(s: &str) -> DateTime<Utc> {
