@@ -1,9 +1,7 @@
 use chrono::{prelude::*, serde::ts_seconds, Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use iif::iif;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
-#[cfg(feature = "binary")]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -69,6 +67,11 @@ enum Command {
         /// filter entries. possible filter values: "week", "all" or part of the description
         filter: Option<String>,
     },
+    #[cfg(not(feature = "binary"))]
+    Export {
+        /// where to write the output file
+        path: PathBuf,
+    },
 
     #[cfg(feature = "binary")]
     /// export the file as json
@@ -80,7 +83,7 @@ enum Command {
         /// pretty print json
         #[structopt(short, long)]
         pretty: bool,
-        /// where to write the json file
+        /// where to write the output file
         path: PathBuf,
     },
     #[cfg(feature = "binary")]
@@ -412,6 +415,21 @@ fn to_human_readable(prefix: &str, time: &DateTime<Utc>, description: Option<Str
     )
 }
 
+fn export_human_readable(path: String, data: &[TrackingEvent]) {
+    let lines = data
+        .iter()
+        .map(|event| match event {
+            TrackingEvent::Start(TrackingData { time, description }) => {
+                to_human_readable("Start", time, description.clone())
+            }
+            TrackingEvent::Stop(TrackingData { time, description }) => {
+                to_human_readable("Stop", time, description.clone())
+            }
+        })
+        .collect::<Vec<_>>();
+    std::fs::write(path, lines.join("\n")).expect("could not export file");
+}
+
 fn main() {
     let Options { command, data_file } = Options::from_args();
 
@@ -467,6 +485,15 @@ fn main() {
             status(&data);
             false
         }
+        #[cfg(not(feature = "binary"))]
+        Command::Export {
+            path
+        } => {
+            let expanded_path = shellexpand::full(&path.to_string_lossy()).expect("could not expand path").to_string();
+            export_human_readable(expanded_path, &data);
+            false
+        }
+
         #[cfg(feature = "binary")]
         Command::Export {
             path,
@@ -475,18 +502,7 @@ fn main() {
         } => {
             let expanded_path = shellexpand::full(&path.to_string_lossy()).expect("could not expand path").to_string();
             if readable {
-                let lines = data
-                    .iter()
-                    .map(|event| match event {
-                        TrackingEvent::Start(TrackingData { time, description }) => {
-                            to_human_readable("Start", time, description.clone())
-                        }
-                        TrackingEvent::Stop(TrackingData { time, description }) => {
-                            to_human_readable("Stop", time, description.clone())
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                std::fs::write(expanded_path, lines.join("\n")).expect("could not export file");
+                export_human_readable(expanded_path, &data);
             } else {
                 write_json_data(expanded_path, &data, pretty);
             }
