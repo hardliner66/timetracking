@@ -244,7 +244,7 @@ fn show(
     };
     let mut data_iterator = data
         .iter()
-        .filter(|entry| match from {
+        .filter(|entry| iif!(filter.clone().unwrap_or_default() == "all", true, match from {
             None => true,
             Some(DateOrDateTime::Date(from)) => {
                 entry.time(true).timestamp_millis()
@@ -260,8 +260,8 @@ fn show(
                         .unwrap()
                         .timestamp_millis()
             }
-        })
-        .filter(|entry| match to {
+        }))
+        .filter(|entry| iif!(filter.clone().unwrap_or_default() == "all", true, match to {
             None => true,
             Some(DateOrDateTime::Date(to)) => {
                 entry.time(true).timestamp_millis()
@@ -277,14 +277,14 @@ fn show(
                         .unwrap()
                         .timestamp_millis()
             }
-        })
+        }))
         .filter(|entry| match entry {
             TrackingEvent::Start(TrackingData { description, .. })
             | TrackingEvent::Stop(TrackingData { description, .. }) => match (&filter, description)
             {
-                (Some(filter), Some(description)) => description.contains(filter),
+                (Some(filter), Some(description)) => filter == "all" || description.contains(filter),
+                (Some(filter), None) => filter == "all",
                 (None, _) => true,
-                _ => false,
             },
         })
         .skip_while(|entry| TrackingEvent::is_stop(entry));
