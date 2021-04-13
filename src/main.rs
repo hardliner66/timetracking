@@ -21,7 +21,8 @@ struct Options {
 
 #[derive(Debug, StructOpt)]
 enum Command {
-    /// show info from the latest entry
+    /// show info from the latest entry. Returns the exit code 0, if the time tracking is currently
+    /// active and -1 if not.
     Status,
 
     /// start time tracking
@@ -402,6 +403,7 @@ fn status(data: &[TrackingEvent]) {
                 time.second()
             );
         }
+        std::process::exit(iif!(active, 0, -1));
     }
 }
 
