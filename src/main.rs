@@ -8,6 +8,7 @@ use structopt::StructOpt;
 struct Options {
     #[cfg(feature = "binary")]
     /// which data file to use. [default: ~/timetracking.bin]
+    #[structopt(short, long)]
     data_file: Option<PathBuf>,
 
     #[cfg(not(feature = "binary"))]
@@ -51,18 +52,29 @@ enum Command {
     Continue,
 
     /// list all entries
-    List,
+    List {
+        /// show all entries after this point in time [defaults to current day 00:00:00]
+        #[structopt(short, long)]
+        from: Option<String>,
+
+        /// show all entries before this point in time [defaults to start day 23:59:59]
+        #[structopt(short, long)]
+        to: Option<String>,
+
+        /// filter entries. possible filter values: "week", "all" or part of the description
+        filter: Option<String>,
+    },
 
     /// show path to data file
     Path,
 
     /// show work time for given timespan
     Show {
-        /// the start time [defaults to current day 00:00:00]
+        /// show all entries after this point in time [defaults to current day 00:00:00]
         #[structopt(short, long)]
         from: Option<String>,
 
-        /// the stop time [defaults to start day 23:59:59]
+        /// show all entries before this point in time [defaults to start day 23:59:59]
         #[structopt(short, long)]
         to: Option<String>,
 
@@ -253,21 +265,20 @@ fn split_duration(duration: Duration) -> (i64, i64, i64) {
     (hours, minutes, seconds)
 }
 
-fn show(
+fn filter_events(
     data: &[TrackingEvent],
     from: Option<String>,
     to: Option<String>,
     filter: Option<String>,
-    include_seconds: bool,
-) -> Option<()> {
+) -> Vec<TrackingEvent> {
     let (filter, from, to) = match filter {
         Some(from) if from == "week" => {
             let now = Local::today();
             let weekday = now.weekday();
             let offset = weekday.num_days_from_monday();
             let (monday_offset, sunday_offset) = (offset, 6 - offset);
-            let from = DateOrDateTime::Date(now.with_day(now.day() - monday_offset)?.naive_local());
-            let to = DateOrDateTime::Date(now.with_day(now.day() + sunday_offset)?.naive_local());
+            let from = DateOrDateTime::Date(now.with_day(now.day() - monday_offset).unwrap().naive_local());
+            let to = DateOrDateTime::Date(now.with_day(now.day() + sunday_offset).unwrap().naive_local());
             (None, Some(from), Some(to))
         }
         f => {
@@ -287,7 +298,7 @@ fn show(
             (f, Some(from), Some(to))
         }
     };
-    let mut data_iterator = data
+    let data_iterator = data
         .iter()
         .filter(|entry| {
             iif!(
@@ -347,6 +358,18 @@ fn show(
             },
         })
         .skip_while(|entry| TrackingEvent::is_stop(entry));
+    data_iterator.cloned().collect()
+}
+
+fn show(
+    data: &[TrackingEvent],
+    from: Option<String>,
+    to: Option<String>,
+    filter: Option<String>,
+    include_seconds: bool,
+) -> Option<()> {
+    let data = filter_events(data, from, to, filter);
+    let mut data_iterator = data.iter();
     let mut work_day = Duration::zero();
     loop {
         let start = data_iterator.next();
@@ -424,8 +447,8 @@ fn to_human_readable(prefix: &str, time: &DateTime<Utc>, description: Option<Str
     )
 }
 
-fn export_human_readable(path: String, data: &[TrackingEvent]) {
-    let lines = data
+fn get_human_readable(data: &[TrackingEvent]) -> Vec<String> {
+    data
         .iter()
         .map(|event| match event {
             TrackingEvent::Start(TrackingData { time, description }) => {
@@ -435,7 +458,11 @@ fn export_human_readable(path: String, data: &[TrackingEvent]) {
                 to_human_readable("Stop", time, description.clone())
             }
         })
-        .collect::<Vec<_>>();
+        .collect::<Vec<_>>()
+}
+
+fn export_human_readable(path: String, data: &[TrackingEvent]) {
+    let lines = get_human_readable(data);
     std::fs::write(path, lines.join("\n")).expect("could not export file");
 }
 
@@ -478,8 +505,15 @@ fn main() {
             continue_tracking(&mut data);
             true
         }
-        Command::List => {
-            data.iter().for_each(|e| println!("{:?}", e));
+        Command::List {
+            from,
+            to,
+            filter,
+        } => {
+            let data = filter_events(&data, from, to, filter);
+            for s in get_human_readable(&data) {
+                println!("{}", s);
+            }
             false
         }
         Command::Path => {

@@ -12,14 +12,14 @@ cargo install timetracking
 ## Commandline
 ```
 USAGE:
-    tt [data-file] <SUBCOMMAND>
+    tt [OPTIONS] [SUBCOMMAND]
 
 FLAGS:
     -h, --help       Prints help information
     -V, --version    Prints version information
 
-ARGS:
-    <data-file>    which data file to use. [default: ~/timetracking.bin]
+OPTIONS:
+    -d, --data-file <data-file>    which data file to use. [default: ~/timetracking.bin]
 
 SUBCOMMANDS:
     continue    continue time tracking with last description
@@ -30,7 +30,8 @@ SUBCOMMANDS:
     path        show path to data file
     show        show work time for given timespan
     start       start time tracking
-    status      show info from the latest entry
+    status      show info from the latest entry. Returns the exit code 0, if the time tracking is currently active
+                and -1 if not
     stop        stop time tracking
 ```
 
