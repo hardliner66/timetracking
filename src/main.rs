@@ -69,7 +69,19 @@ enum Command {
     #[cfg(feature = "binary")]
     /// export the file as json
     Export {
+        /// export in a human readable format. This format is for human reading only and cannot be
+        /// imported
+        #[structopt(short, long)]
+        readable: bool,
+        /// pretty print json
+        #[structopt(short, long)]
+        pretty: bool,
         /// where to write the json file
+        path: PathBuf,
+    },
+    #[cfg(feature = "binary")]
+    Import {
+        /// which file to import
         path: PathBuf,
     },
 }
@@ -132,14 +144,26 @@ enum DateOrDateTime {
 
 #[cfg(feature = "binary")]
 fn read_data<P: AsRef<Path>>(path: P) -> Vec<TrackingEvent> {
-    let data = std::fs::read(&path).unwrap_or_default();
-    bincode::deserialize(&data).unwrap_or_default()
+    if path.as_ref().exists() {
+        let data = std::fs::read(&path).expect("could not read file");
+        bincode::deserialize(&data).expect("could not deserialize data")
+    } else {
+        Default::default()
+    }
 }
 
 #[cfg(not(feature = "binary"))]
 fn read_data<P: AsRef<Path>>(path: P) -> Vec<TrackingEvent> {
-    let data = std::fs::read_to_string(&path).unwrap_or_default();
-    serde_json::from_str(&data).unwrap_or_default()
+    read_json_data(path)
+}
+
+fn read_json_data<P: AsRef<Path>>(path: P) -> Vec<TrackingEvent> {
+    if path.as_ref().exists() {
+        let data = std::fs::read_to_string(&path).expect("could not read file");
+        serde_json::from_str(&data).expect("could not deserialize data")
+    } else {
+        Default::default()
+    }
 }
 
 #[cfg(feature = "binary")]
@@ -148,14 +172,19 @@ fn write_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent]) {
     std::fs::write(path, data).expect("could not write data file");
 }
 
-fn write_data_json<P: AsRef<Path>>(path: P, data: &[TrackingEvent]) {
-    let data = serde_json::to_string(data).expect("could not serialize data");
+fn write_json_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent], pretty: bool) {
+    let data = iif!(
+        pretty,
+        serde_json::to_string_pretty(data),
+        serde_json::to_string(data)
+    )
+    .expect("could not serialize data");
     std::fs::write(path, data).expect("could not write data file");
 }
 
 #[cfg(not(feature = "binary"))]
 fn write_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent]) {
-    write_data_json(path, data);
+    write_json_data(path, data, false);
 }
 
 fn start_tracking(data: &mut Vec<TrackingEvent>, description: Option<String>, at: Option<String>) {
@@ -230,7 +259,8 @@ fn show(
             let from = match &from {
                 Some(s) => Some(parse_date_or_date_time(&s)),
                 None => None,
-            }.unwrap_or_else(||DateOrDateTime::Date(Local::today().naive_local()));
+            }
+            .unwrap_or_else(|| DateOrDateTime::Date(Local::today().naive_local()));
 
             let to = match to {
                 Some(s) => parse_date_or_date_time(&s),
@@ -244,45 +274,59 @@ fn show(
     };
     let mut data_iterator = data
         .iter()
-        .filter(|entry| iif!(filter.clone().unwrap_or_default() == "all", true, match from {
-            None => true,
-            Some(DateOrDateTime::Date(from)) => {
-                entry.time(true).timestamp_millis()
-                    >= TimeZone::from_local_date(&Local, &from)
-                        .unwrap()
-                        .and_time(NaiveTime::from_hms(0, 0, 0))
-                        .unwrap()
-                        .timestamp_millis()
-            }
-            Some(DateOrDateTime::DateTime(from)) => {
-                entry.time(true).timestamp_millis()
-                    >= TimeZone::from_local_datetime(&Local, &from)
-                        .unwrap()
-                        .timestamp_millis()
-            }
-        }))
-        .filter(|entry| iif!(filter.clone().unwrap_or_default() == "all", true, match to {
-            None => true,
-            Some(DateOrDateTime::Date(to)) => {
-                entry.time(true).timestamp_millis()
-                    <= TimeZone::from_local_date(&Local, &to)
-                        .unwrap()
-                        .and_time(NaiveTime::from_hms(23, 59, 59))
-                        .unwrap()
-                        .timestamp_millis()
-            }
-            Some(DateOrDateTime::DateTime(to)) => {
-                entry.time(true).timestamp_millis()
-                    <= TimeZone::from_local_datetime(&Local, &to)
-                        .unwrap()
-                        .timestamp_millis()
-            }
-        }))
+        .filter(|entry| {
+            iif!(
+                filter.clone().unwrap_or_default() == "all",
+                true,
+                match from {
+                    None => true,
+                    Some(DateOrDateTime::Date(from)) => {
+                        entry.time(true).timestamp_millis()
+                            >= TimeZone::from_local_date(&Local, &from)
+                                .unwrap()
+                                .and_time(NaiveTime::from_hms(0, 0, 0))
+                                .unwrap()
+                                .timestamp_millis()
+                    }
+                    Some(DateOrDateTime::DateTime(from)) => {
+                        entry.time(true).timestamp_millis()
+                            >= TimeZone::from_local_datetime(&Local, &from)
+                                .unwrap()
+                                .timestamp_millis()
+                    }
+                }
+            )
+        })
+        .filter(|entry| {
+            iif!(
+                filter.clone().unwrap_or_default() == "all",
+                true,
+                match to {
+                    None => true,
+                    Some(DateOrDateTime::Date(to)) => {
+                        entry.time(true).timestamp_millis()
+                            <= TimeZone::from_local_date(&Local, &to)
+                                .unwrap()
+                                .and_time(NaiveTime::from_hms(23, 59, 59))
+                                .unwrap()
+                                .timestamp_millis()
+                    }
+                    Some(DateOrDateTime::DateTime(to)) => {
+                        entry.time(true).timestamp_millis()
+                            <= TimeZone::from_local_datetime(&Local, &to)
+                                .unwrap()
+                                .timestamp_millis()
+                    }
+                }
+            )
+        })
         .filter(|entry| match entry {
             TrackingEvent::Start(TrackingData { description, .. })
             | TrackingEvent::Stop(TrackingData { description, .. }) => match (&filter, description)
             {
-                (Some(filter), Some(description)) => filter == "all" || description.contains(filter),
+                (Some(filter), Some(description)) => {
+                    filter == "all" || description.contains(filter)
+                }
                 (Some(filter), None) => filter == "all",
                 (None, _) => true,
             },
@@ -347,6 +391,23 @@ fn status(data: &[TrackingEvent]) {
     }
 }
 
+fn to_human_readable(prefix: &str, time: &DateTime<Utc>, description: Option<String>) -> String {
+    let description = description
+        .map(|d| format!(" \"{}\"", d))
+        .unwrap_or_default();
+    format!(
+        "{}{} at {:04}.{:02}.{:02}-{:02}:{:02}:{:02}",
+        prefix,
+        description,
+        time.year(),
+        time.month(),
+        time.day(),
+        time.hour(),
+        time.minute(),
+        time.second()
+    )
+}
+
 fn main() {
     let Options { command } = Options::from_args();
 
@@ -374,9 +435,30 @@ fn main() {
         } => show(&data, from, to, filter, include_seconds).unwrap(),
         Command::Status => status(&data),
         #[cfg(feature = "binary")]
-        Command::Export { path } => {
-            write_data_json(path, &data);
+        Command::Export {
+            path,
+            readable,
+            pretty,
+        } => {
+            if readable {
+                let lines = data
+                    .iter()
+                    .map(|event| match event {
+                        TrackingEvent::Start(TrackingData { time, description }) => {
+                            to_human_readable("Start", time, description.clone())
+                        }
+                        TrackingEvent::Stop(TrackingData { time, description }) => {
+                            to_human_readable("Stop", time, description.clone())
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                std::fs::write(path, lines.join("\n")).expect("could not export file");
+            } else {
+                write_json_data(path, &data, pretty);
+            }
         }
+        #[cfg(feature = "binary")]
+        Command::Import { path } => data = read_json_data(path),
         #[allow(unreachable_patterns)]
         _ => unimplemented!(),
     }
