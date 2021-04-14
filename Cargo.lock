@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "timetracking"
-version = "1.5.3"
+version = "1.5.4-alpha.0"
 dependencies = [
  "bincode",
  "chrono",
