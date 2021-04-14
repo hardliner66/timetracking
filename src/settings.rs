@@ -7,7 +7,7 @@ use std::path::Path;
 pub struct Settings {
     pub data_file: String,
     pub auto_insert_stop: bool,
-    pub enable_project_settings: bool
+    pub enable_project_settings: bool,
 }
 
 fn add_file_if_exists(s: &mut Config, file: &str) -> Result<bool, ConfigError> {
@@ -46,11 +46,17 @@ impl Settings {
         s.merge(File::with_name(config_path.as_str()).required(false))?;
 
         if s.get_bool("enable_project_settings")? {
-        let current_dir = std::env::current_dir().expect("Could not get current directory");
-        let mut path = current_dir.as_path();
-            if !add_file_if_exists(&mut s, &format!("{}/timetracking.project.toml", path_to_string_lossy(&path)))? {
+            let current_dir = std::env::current_dir().expect("Could not get current directory");
+            let mut path = current_dir.as_path();
+            if !add_file_if_exists(
+                &mut s,
+                &format!("{}/timetracking.project.toml", path_to_string_lossy(&path)),
+            )? {
                 while let Some(parent) = path.parent() {
-                    if add_file_if_exists(&mut s, &format!("{}/timetracking.project.toml", path_to_string_lossy(&path)))? {
+                    if add_file_if_exists(
+                        &mut s,
+                        &format!("{}/timetracking.project.toml", path_to_string_lossy(&path)),
+                    )? {
                         break;
                     }
                     path = parent;

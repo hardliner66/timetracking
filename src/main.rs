@@ -125,6 +125,19 @@ enum Command {
     },
 }
 
+impl Default for Command {
+    fn default() -> Self {
+        Self::Show {
+            from: None,
+            to: None,
+            filter: None,
+            format: None,
+            include_seconds: false,
+            plain: false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct TrackingData {
     description: Option<String>,
@@ -419,7 +432,7 @@ fn show(
     filter: Option<String>,
     include_seconds: bool,
     plain: bool,
-) -> Option<()> {
+) {
     let data = filter_events(data, from, to, filter);
     let mut data_iterator = data.iter();
     let mut work_day = Duration::zero();
@@ -462,7 +475,6 @@ fn show(
     } else {
         println!("Work Time: {}", time);
     }
-    Some(())
 }
 
 fn status(data: &[TrackingEvent]) {
@@ -539,23 +551,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let path = match data_file {
         Some(path) => path,
-        None => {
-            shellexpand::full(&settings.data_file)?.parse()?
-        }
+        None => shellexpand::full(&settings.data_file)?.parse()?,
     };
     let expanded_path = shellexpand::full(&path.to_string_lossy())
         .expect("could not expand path")
         .to_string();
     let mut data = read_data(&expanded_path);
 
-    let data_changed = match command.unwrap_or_else(|| Command::Show {
-        from: None,
-        to: None,
-        filter: None,
-        format: None,
-        include_seconds: false,
-        plain: false,
-    }) {
+    let data_changed = match command.unwrap_or_default() {
         Command::Start { description, at } => {
             start_tracking(&settings, &mut data, description, at);
             true
@@ -587,7 +590,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             include_seconds,
             plain,
         } => {
-            show(&data, from, to, format, filter, include_seconds, plain).unwrap();
+            show(&data, from, to, format, filter, include_seconds, plain);
             false
         }
         Command::Status => {
