@@ -100,3 +100,6 @@ command = """ tt show --format "{h}h {mm}m" """
 when = "tt status"
 shell = "sh"
 ```
+
+This is how it looks like:
+![Starship Prompt](https://user-images.githubusercontent.com/2937272/114703152-38f71600-9d25-11eb-8fee-564d2efe2c8e.png)
