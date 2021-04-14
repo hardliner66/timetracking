@@ -469,6 +469,9 @@ fn status(data: &[TrackingEvent]) {
             );
         }
         std::process::exit(iif!(active, 0, -1));
+    } else {
+        println!("No Events found!");
+        std::process::exit(-1);
     }
 }
 
