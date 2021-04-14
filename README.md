@@ -35,6 +35,28 @@ SUBCOMMANDS:
     stop        stop time tracking
 ```
 
+## Example Usage
+Start tracking:
+`tt start`
+
+Stop tracking:
+`tt stop`
+
+Show work time of the current day:
+`tt show`
+
+Show work time of the current week:
+`tt show week`
+
+List all entries for the current day:
+`tt list`
+
+Export to json:
+`tt export backup.json`
+
+Import from json:
+`tt import backup.json`
+
 ## Config
 
 `tt` supports global config (`~/.config/timetracking/config.toml`), project config (`timetracking.project.toml`) and local config (`.timetracking.toml`).
