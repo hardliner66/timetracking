@@ -82,9 +82,17 @@ enum Command {
         #[structopt(short, long)]
         to: Option<String>,
 
+        /// show only the time with no additional text
+        #[structopt(short, long)]
+        plain: bool,
+
         /// include seconds in time calculation
         #[structopt(short)]
         include_seconds: bool,
+
+        /// show only the time with no additional text. [default: "{hh}:{mm}:{ss}"]
+        #[structopt(long)]
+        format: Option<String>,
 
         /// filter entries. possible filter values: "week", "all" or part of the description
         filter: Option<String>,
@@ -407,8 +415,10 @@ fn show(
     data: &[TrackingEvent],
     from: Option<String>,
     to: Option<String>,
+    format: Option<String>,
     filter: Option<String>,
     include_seconds: bool,
+    plain: bool,
 ) -> Option<()> {
     let data = filter_events(data, from, to, filter);
     let mut data_iterator = data.iter();
@@ -439,7 +449,19 @@ fn show(
         }
     }
     let (hours, minutes, seconds) = split_duration(work_day);
-    println!("Work Time: {:02}:{:02}:{:02}", hours, minutes, seconds);
+    let format = format.unwrap_or_else(|| "{hh}:{mm}:{ss}".to_string());
+    let time = format
+        .replace("{hh}", &format!("{:02}", hours))
+        .replace("{mm}", &format!("{:02}", minutes))
+        .replace("{ss}", &format!("{:02}", seconds))
+        .replace("{h}", &format!("{}", hours))
+        .replace("{m}", &format!("{}", minutes))
+        .replace("{s}", &format!("{}", seconds));
+    if plain {
+        println!("{}", time);
+    } else {
+        println!("Work Time: {}", time);
+    }
     Some(())
 }
 
@@ -530,7 +552,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         from: None,
         to: None,
         filter: None,
+        format: None,
         include_seconds: false,
+        plain: false,
     }) {
         Command::Start { description, at } => {
             start_tracking(&settings, &mut data, description, at);
@@ -558,10 +582,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Show {
             from,
             to,
+            format,
             filter,
             include_seconds,
+            plain,
         } => {
-            show(&data, from, to, filter, include_seconds).unwrap();
+            show(&data, from, to, format, filter, include_seconds, plain).unwrap();
             false
         }
         Command::Status => {
