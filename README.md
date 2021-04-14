@@ -35,6 +35,19 @@ SUBCOMMANDS:
     stop        stop time tracking
 ```
 
+## Settings
+
+`tt` supports global settings (`~/.config/timetracking/config.toml`) and local settings (`.timetracking.toml`).
+
+The following settings are supported:
+```toml
+# the file where to save the events
+data_file = "~/timetracking.bin"
+
+# if true, calling start when already running inserts a stop event and a start event.
+auto_insert_stop = false
+```
+
 ## Starship
 
 You can use the following snippet to show how much you worked today,

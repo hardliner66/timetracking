@@ -1,0 +1,5 @@
+# the file where to save the events
+data_file = "~/timetracking.bin"
+
+# if true, calling start when already running inserts a stop event and a start event.
+auto_insert_stop = false

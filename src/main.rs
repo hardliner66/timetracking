@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
+mod settings;
+
+use settings::Settings;
+
 #[derive(Debug, StructOpt)]
 struct Options {
     #[cfg(feature = "binary")]
@@ -214,16 +218,44 @@ fn write_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent]) {
     write_json_data(path, data, false);
 }
 
-fn start_tracking(data: &mut Vec<TrackingEvent>, description: Option<String>, at: Option<String>) {
-    let should_add = match data.last() {
-        None => true,
-        Some(event) => event.is_stop(),
+fn start_tracking(
+    settings: &Settings,
+    data: &mut Vec<TrackingEvent>,
+    description: Option<String>,
+    at: Option<String>,
+) {
+    let (should_add, last_description) = match data.last() {
+        None => (true, None),
+        Some(event) => (event.is_stop(), event.description()),
     };
     if should_add {
         data.push(TrackingEvent::Start(TrackingData {
             description,
             time: at.map_or_else(|| Local::now().into(), |at| parse_date_time(&at)),
         }));
+    } else if settings.auto_insert_stop && at.is_none() {
+        match (description, last_description) {
+            (Some(description), Some(last_description)) if description == last_description => {
+                eprintln!(
+                    "Timetracking with the description \"{}\" is already running!",
+                    description
+                )
+            }
+            (description, _) => {
+                data.push(TrackingEvent::Stop(TrackingData {
+                    description: None,
+                    time: Local::now().into(),
+                }));
+                data.push(TrackingEvent::Start(TrackingData {
+                    description,
+                    time: Local::now().into(),
+                }));
+            }
+        }
+    } else if settings.auto_insert_stop && at.is_some() {
+        eprintln!("Auto insert for stop events currently not supported with --at");
+    } else {
+        eprintln!("Time tracking is already running!");
     }
 }
 
@@ -237,6 +269,8 @@ fn stop_tracking(data: &mut Vec<TrackingEvent>, description: Option<String>, at:
             description,
             time: at.map_or_else(|| Local::now().into(), |at| parse_date_time(&at)),
         }))
+    } else {
+        eprintln!("Time tracking is already stopped!");
     }
 }
 
@@ -277,8 +311,16 @@ fn filter_events(
             let weekday = now.weekday();
             let offset = weekday.num_days_from_monday();
             let (monday_offset, sunday_offset) = (offset, 6 - offset);
-            let from = DateOrDateTime::Date(now.with_day(now.day() - monday_offset).unwrap().naive_local());
-            let to = DateOrDateTime::Date(now.with_day(now.day() + sunday_offset).unwrap().naive_local());
+            let from = DateOrDateTime::Date(
+                now.with_day(now.day() - monday_offset)
+                    .unwrap()
+                    .naive_local(),
+            );
+            let to = DateOrDateTime::Date(
+                now.with_day(now.day() + sunday_offset)
+                    .unwrap()
+                    .naive_local(),
+            );
             (None, Some(from), Some(to))
         }
         f => {
@@ -448,8 +490,7 @@ fn to_human_readable(prefix: &str, time: &DateTime<Utc>, description: Option<Str
 }
 
 fn get_human_readable(data: &[TrackingEvent]) -> Vec<String> {
-    data
-        .iter()
+    data.iter()
         .map(|event| match event {
             TrackingEvent::Start(TrackingData { time, description }) => {
                 to_human_readable("Start", time, description.clone())
@@ -466,20 +507,15 @@ fn export_human_readable(path: String, data: &[TrackingEvent]) {
     std::fs::write(path, lines.join("\n")).expect("could not export file");
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let Options { command, data_file } = Options::from_args();
+
+    let settings = Settings::new()?;
 
     let path = match data_file {
         Some(path) => path,
         None => {
-            let mut path = dirs_next::home_dir().unwrap_or_else(|| ".".into());
-
-            if cfg!(feature = "binary") {
-                path.push("timetracking.bin");
-            } else {
-                path.push("timetracking.json");
-            }
-            path
+            shellexpand::full(&settings.data_file)?.parse()?
         }
     };
     let expanded_path = shellexpand::full(&path.to_string_lossy())
@@ -494,7 +530,7 @@ fn main() {
         include_seconds: false,
     }) {
         Command::Start { description, at } => {
-            start_tracking(&mut data, description, at);
+            start_tracking(&settings, &mut data, description, at);
             true
         }
         Command::Stop { description, at } => {
@@ -505,11 +541,7 @@ fn main() {
             continue_tracking(&mut data);
             true
         }
-        Command::List {
-            from,
-            to,
-            filter,
-        } => {
+        Command::List { from, to, filter } => {
             let data = filter_events(&data, from, to, filter);
             for s in get_human_readable(&data) {
                 println!("{}", s);
@@ -570,6 +602,8 @@ fn main() {
     if data_changed {
         write_data(expanded_path, &data);
     }
+
+    Ok(())
 }
 
 fn parse_date_time(s: &str) -> DateTime<Utc> {

@@ -1,0 +1,2 @@
+data_file = "~/timetracking.json"
+auto_insert_stop = false
