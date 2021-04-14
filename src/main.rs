@@ -472,7 +472,7 @@ fn main() {
     let path = match data_file {
         Some(path) => path,
         None => {
-            let mut path = dirs::home_dir().unwrap_or_else(|| ".".into());
+            let mut path = dirs_next::home_dir().unwrap_or_else(|| ".".into());
 
             if cfg!(feature = "binary") {
                 path.push("timetracking.bin");
