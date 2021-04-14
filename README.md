@@ -94,9 +94,9 @@ You can use the following snippet to show how much you worked today,
 while the time tracking is running.
 
 Just add it to your starship config (e.g.: ~/.config/starship.toml)
-```yaml
+```yml
 [custom.worktime]
-command = "tt show"
+command = """ tt show --format "{h}h {mm}m" """
 when = "tt status"
 shell = "sh"
 ```
