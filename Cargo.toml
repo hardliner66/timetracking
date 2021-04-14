@@ -1,7 +1,7 @@
 [package]
 name = "timetracking"
 description = "Simple time tracker with simple data format"
-version = "1.5.2"
+version = "1.5.3-alpha.0"
 authors = ["hardliner66 <hardliner66@gmail.com>"]
 edition = "2018"
 license-file = "LICENSE"
