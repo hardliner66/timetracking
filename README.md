@@ -1,6 +1,6 @@
 # Timetracking
 
-Simple command line time tracking application.
+Simple command line time tracking application I wrote to keep track of how many hours I already spent working in a week.
 
 [![Crates.io](https://img.shields.io/crates/v/timetracking)](https://crates.io/crates/timetracking)
 
