@@ -35,9 +35,9 @@ SUBCOMMANDS:
     stop        stop time tracking
 ```
 
-## Settings
+## Config
 
-`tt` supports global settings (`~/.config/timetracking/config.toml`) and local settings (`.timetracking.toml`).
+`tt` supports global config (`~/.config/timetracking/config.toml`), project config (`timetracking.project.toml`) and local config (`.timetracking.toml`).
 
 The following settings are supported:
 ```toml
@@ -46,7 +46,25 @@ data_file = "~/timetracking.bin"
 
 # if true, calling start when already running inserts a stop event and a start event.
 auto_insert_stop = false
+
+# if true, tt will recursively search parent dirs for project settings
+enable_project_settings = true
 ```
+
+The order in which config files are read is:
+- global
+- project
+- local
+
+Configs override earlier loaded configs.
+
+Project configs are special and will be search recursively upwards, starting from the current directory. So if your in /a/b/c the search order will be:
+- /a/b/c/timetracking.project.toml
+- /a/b/timetracking.project.toml
+- /a/timetracking.project.toml
+- /timetracking.project.toml
+
+Project configs can be disabled in the global config file.
 
 ## Starship
 
