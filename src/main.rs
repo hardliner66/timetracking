@@ -517,6 +517,8 @@ fn show(
                 remaining_minutes = remaining_minutes.min(remaining_minutes_week);
             }
 
+            remaining_minutes = remaining_minutes.max(0);
+
             hours = remaining_minutes / 60;
             minutes = remaining_minutes - (hours * 60);
         } else {
