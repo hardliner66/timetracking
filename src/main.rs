@@ -1,3 +1,4 @@
+use anyhow::Result;
 use chrono::{prelude::*, serde::ts_seconds, Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use iif::iif;
 use serde::{Deserialize, Serialize};
@@ -24,8 +25,34 @@ struct Options {
     command: Option<Command>,
 }
 
+#[derive(Default, Debug, StructOpt)]
+struct FilterData {
+    /// show all entries after this point in time [defaults to current day 00:00:00]
+    /// allowed formats are: "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%H:%M:%S"
+    #[structopt(short, long)]
+    from: Option<String>,
+
+    /// show all entries before this point in time [defaults to start day 23:59:59]
+    /// allowed formats are: "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%H:%M:%S"
+    #[structopt(short, long)]
+    to: Option<String>,
+
+    /// filter entries. possible filter values: "week", "all" or part of the description
+    filter: Option<String>,
+}
+
 #[derive(Debug, StructOpt)]
 enum Command {
+    // keep this at the top, otherwise rust analyzer will underline the whole struct until this
+    // point as it thinks there is a problem, because it doesn't understand that this variant is
+    // disabled via attribute.
+    #[cfg(not(feature = "binary"))]
+    /// export data to file
+    Export {
+        /// where to write the output file
+        path: PathBuf,
+    },
+
     /// show info from the latest entry. Returns the exit code 0, if the time tracking is currently
     /// active and -1 if not.
     Status,
@@ -57,16 +84,8 @@ enum Command {
 
     /// list all entries
     List {
-        /// show all entries after this point in time [defaults to current day 00:00:00]
-        #[structopt(short, long)]
-        from: Option<String>,
-
-        /// show all entries before this point in time [defaults to start day 23:59:59]
-        #[structopt(short, long)]
-        to: Option<String>,
-
-        /// filter entries. possible filter values: "week", "all" or part of the description
-        filter: Option<String>,
+        #[structopt(flatten)]
+        filter: FilterData,
     },
 
     /// show path to data file
@@ -74,17 +93,16 @@ enum Command {
 
     /// show work time for given timespan
     Show {
-        /// show all entries after this point in time [defaults to current day 00:00:00]
-        #[structopt(short, long)]
-        from: Option<String>,
-
-        /// show all entries before this point in time [defaults to start day 23:59:59]
-        #[structopt(short, long)]
-        to: Option<String>,
+        #[structopt(flatten)]
+        filter: FilterData,
 
         /// show only the time with no additional text
         #[structopt(short, long)]
         plain: bool,
+
+        /// show time until the defined time goals are met.
+        #[structopt(short, long)]
+        remaining: bool,
 
         /// include seconds in time calculation
         #[structopt(short)]
@@ -93,17 +111,7 @@ enum Command {
         /// show only the time with no additional text. [default: "{hh}:{mm}:{ss}"]
         #[structopt(long)]
         format: Option<String>,
-
-        /// filter entries. possible filter values: "week", "all" or part of the description
-        filter: Option<String>,
     },
-    #[cfg(not(feature = "binary"))]
-    /// export data to file
-    Export {
-        /// where to write the output file
-        path: PathBuf,
-    },
-
     #[cfg(feature = "binary")]
     /// export data to file
     Export {
@@ -128,12 +136,11 @@ enum Command {
 impl Default for Command {
     fn default() -> Self {
         Self::Show {
-            from: None,
-            to: None,
-            filter: None,
+            filter: FilterData::default(),
             format: None,
             include_seconds: false,
             plain: false,
+            remaining: false,
         }
     }
 }
@@ -195,27 +202,19 @@ enum DateOrDateTime {
 }
 
 #[cfg(feature = "binary")]
-fn read_data<P: AsRef<Path>>(path: P) -> Vec<TrackingEvent> {
-    if path.as_ref().exists() {
-        let data = std::fs::read(&path).expect("could not read file");
-        bincode::deserialize(&data).expect("could not deserialize data")
-    } else {
-        Default::default()
-    }
+fn read_data<P: AsRef<Path>>(path: P) -> Result<Vec<TrackingEvent>> {
+    let data = std::fs::read(&path)?;
+    Ok(bincode::deserialize(&data)?)
 }
 
 #[cfg(not(feature = "binary"))]
-fn read_data<P: AsRef<Path>>(path: P) -> Vec<TrackingEvent> {
+fn read_data<P: AsRef<Path>>(path: P) -> Result<Vec<TrackingEvent>> {
     read_json_data(path)
 }
 
-fn read_json_data<P: AsRef<Path>>(path: P) -> Vec<TrackingEvent> {
-    if path.as_ref().exists() {
-        let data = std::fs::read_to_string(&path).expect("could not read file");
-        serde_json::from_str(&data).expect("could not deserialize data")
-    } else {
-        Default::default()
-    }
+fn read_json_data<P: AsRef<Path>>(path: P) -> Result<Vec<TrackingEvent>> {
+    let data = std::fs::read_to_string(&path)?;
+    Ok(serde_json::from_str(&data)?)
 }
 
 #[cfg(feature = "binary")]
@@ -322,9 +321,9 @@ fn split_duration(duration: Duration) -> (i64, i64, i64) {
 
 fn filter_events(
     data: &[TrackingEvent],
-    from: Option<String>,
-    to: Option<String>,
-    filter: Option<String>,
+    from: &Option<String>,
+    to: &Option<String>,
+    filter: &Option<String>,
 ) -> Vec<TrackingEvent> {
     let (filter, from, to) = match filter {
         Some(from) if from == "week" => {
@@ -345,20 +344,19 @@ fn filter_events(
             (None, Some(from), Some(to))
         }
         f => {
-            let from = match &from {
-                Some(s) => Some(parse_date_or_date_time(&s)),
-                None => None,
-            }
-            .unwrap_or_else(|| DateOrDateTime::Date(Local::today().naive_local()));
+            let from = from.as_ref().map_or_else(
+                || DateOrDateTime::Date(Local::today().naive_local()),
+                |s| parse_date_or_date_time(&s),
+            );
 
             let to = match to {
                 Some(s) => parse_date_or_date_time(&s),
                 None => match from {
                     DateOrDateTime::DateTime(from) => DateOrDateTime::Date(from.date()),
-                    from => from,
+                    from @ DateOrDateTime::Date(..) => from,
                 },
             };
-            (f, Some(from), Some(to))
+            (f.clone(), Some(from), Some(to))
         }
     };
     let data_iterator = data
@@ -424,16 +422,7 @@ fn filter_events(
     data_iterator.cloned().collect()
 }
 
-fn show(
-    data: &[TrackingEvent],
-    from: Option<String>,
-    to: Option<String>,
-    format: Option<String>,
-    filter: Option<String>,
-    include_seconds: bool,
-    plain: bool,
-) {
-    let data = filter_events(data, from, to, filter);
+fn get_time_from_events(data: &[TrackingEvent], include_seconds: bool) -> Duration {
     let mut data_iterator = data.iter();
     let mut work_day = Duration::zero();
     loop {
@@ -461,7 +450,56 @@ fn show(
             (_, _) => break,
         }
     }
-    let (hours, minutes, seconds) = split_duration(work_day);
+    work_day
+}
+
+fn get_remaining_minutes(settings: &Settings, filter: &str, hours: i64, minutes: i64) -> i64 {
+    let total = minutes + (hours * 60);
+    let time_goal = if filter == "week" {
+        &settings.time_goal.weekly
+    } else {
+        &settings.time_goal.daily
+    };
+    let required = i64::from(time_goal.minutes) + (i64::from(time_goal.hours) * 60);
+    required - total
+}
+
+fn show(
+    settings: &Settings,
+    data: &[TrackingEvent],
+    filter: &FilterData,
+    format: Option<String>,
+    include_seconds: bool,
+    plain: bool,
+    remaining: bool,
+) {
+    let FilterData { from, to, filter } = filter;
+    let data = filter_events(data, &from, &to, &filter);
+    let work_time = get_time_from_events(&data, include_seconds);
+    let (mut hours, mut minutes, mut seconds) = split_duration(work_time);
+
+    let filter = filter.clone().unwrap_or_default();
+    if remaining {
+        if (filter == "week" || filter.is_empty()) && from.is_none() && to.is_none() {
+            seconds = 0;
+            let mut remaining_minutes = get_remaining_minutes(&settings, &filter, hours, minutes);
+
+            if filter != "week" {
+                let data = filter_events(&data, &None, &None, &Some("week".to_string()));
+                let work_time = get_time_from_events(&data, include_seconds);
+                let (week_hours, week_minutes, _) = split_duration(work_time);
+                let remaining_minutes_week =
+                    get_remaining_minutes(&settings, "week", week_hours, week_minutes);
+                remaining_minutes = remaining_minutes.min(remaining_minutes_week);
+            }
+
+            hours = remaining_minutes / 60;
+            minutes = remaining_minutes - (hours * 60);
+        } else {
+            eprintln!("Remaining only works when \"from\" and \"to\" are not set and with no filter or filter \"week\"");
+            return;
+        }
+    }
     let format = format.unwrap_or_else(|| "{hh}:{mm}:{ss}".to_string());
     let time = format
         .replace("{hh}", &format!("{:02}", hours))
@@ -472,6 +510,8 @@ fn show(
         .replace("{s}", &format!("{}", seconds));
     if plain {
         println!("{}", time);
+    } else if remaining {
+        println!("Remaining Work Time: {}", time);
     } else {
         println!("Work Time: {}", time);
     }
@@ -556,7 +596,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let expanded_path = shellexpand::full(&path.to_string_lossy())
         .expect("could not expand path")
         .to_string();
-    let mut data = read_data(&expanded_path);
+    let mut data = read_data(&expanded_path).unwrap_or_default();
 
     let data_changed = match command.unwrap_or_default() {
         Command::Start { description, at } => {
@@ -571,8 +611,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue_tracking(&mut data);
             true
         }
-        Command::List { from, to, filter } => {
-            let data = filter_events(&data, from, to, filter);
+        Command::List { filter } => {
+            let data = filter_events(&data, &filter.from, &filter.to, &filter.filter);
             for s in get_human_readable(&data) {
                 println!("{}", s);
             }
@@ -583,14 +623,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             false
         }
         Command::Show {
-            from,
-            to,
             format,
             filter,
             include_seconds,
             plain,
+            remaining,
         } => {
-            show(&data, from, to, format, filter, include_seconds, plain);
+            show(
+                &settings,
+                &data,
+                &filter,
+                format,
+                include_seconds,
+                plain,
+                remaining,
+            );
             false
         }
         Command::Status => {
@@ -624,7 +671,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         #[cfg(feature = "binary")]
         Command::Import { path } => {
-            data = read_json_data(path);
+            data = read_json_data(path)?;
             true
         }
         #[allow(unreachable_patterns)]

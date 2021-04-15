@@ -4,10 +4,23 @@ use serde::Deserialize;
 use std::path::Path;
 
 #[derive(Default, Debug, Deserialize)]
+pub struct Time {
+    pub hours: u8,
+    pub minutes: u8,
+}
+
+#[derive(Default, Debug, Deserialize)]
+pub struct TimeGoal {
+    pub daily: Time,
+    pub weekly: Time,
+}
+
+#[derive(Default, Debug, Deserialize)]
 pub struct Settings {
     pub data_file: String,
     pub auto_insert_stop: bool,
     pub enable_project_settings: bool,
+    pub time_goal: TimeGoal,
 }
 
 fn add_file_if_exists(s: &mut Config, file: &str) -> Result<bool, ConfigError> {
@@ -67,6 +80,15 @@ impl Settings {
         s.merge(File::with_name(".timetracking.config").required(false))?;
 
         s.merge(Environment::with_prefix("tt"))?;
+
+        let daily_hours = s.get_int("time_goal.daily.hours")?;
+        s.set("time_goal.daily.hours", daily_hours.min(24))?;
+        let daily_minutes = s.get_int("time_goal.daily.minutes")?;
+        s.set("time_goal.daily.minutes", daily_minutes.min(59))?;
+        let weekly_hours = s.get_int("time_goal.weekly.hours")?;
+        s.set("time_goal.weekly.hours", weekly_hours.min(168))?;
+        let weekly_minutes = s.get_int("time_goal.weekly.minutes")?;
+        s.set("time_goal.weekly.minutes", weekly_minutes.min(59))?;
 
         // You can deserialize (and thus freeze) the entire configuration as
         s.try_into()
