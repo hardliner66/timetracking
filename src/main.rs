@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{prelude::*, serde::ts_seconds, Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use iif::iif;
 use serde::{Deserialize, Serialize};
@@ -195,10 +195,23 @@ impl TrackingEvent {
     }
 }
 
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone, Copy)]
 enum DateOrDateTime {
     Date(NaiveDate),
     DateTime(NaiveDateTime),
+}
+
+impl From<NaiveDate> for DateOrDateTime {
+    fn from(date: NaiveDate) -> Self {
+        Self::Date(date)
+    }
+}
+
+impl From<NaiveDateTime> for DateOrDateTime {
+    fn from(date_time: NaiveDateTime) -> Self {
+        Self::DateTime(date_time)
+    }
 }
 
 #[cfg(feature = "binary")]
@@ -243,7 +256,7 @@ fn start_tracking(
     data: &mut Vec<TrackingEvent>,
     description: Option<String>,
     at: Option<String>,
-) {
+) -> Result<()> {
     let (should_add, last_description) = match data.last() {
         None => (true, None),
         Some(event) => (event.is_stop(), event.description()),
@@ -251,7 +264,7 @@ fn start_tracking(
     if should_add {
         data.push(TrackingEvent::Start(TrackingData {
             description,
-            time: at.map_or_else(|| Local::now().into(), |at| parse_date_time(&at)),
+            time: at.map_or_else(|| Ok(Local::now().into()), |at| parse_date_time(&at))?,
         }));
     } else if settings.auto_insert_stop && at.is_none() {
         match (description, last_description) {
@@ -277,9 +290,15 @@ fn start_tracking(
     } else {
         eprintln!("Time tracking is already running!");
     }
+
+    Ok(())
 }
 
-fn stop_tracking(data: &mut Vec<TrackingEvent>, description: Option<String>, at: Option<String>) {
+fn stop_tracking(
+    data: &mut Vec<TrackingEvent>,
+    description: Option<String>,
+    at: Option<String>,
+) -> Result<()> {
     let should_add = match data.last() {
         None => true,
         Some(event) => event.is_start(),
@@ -287,11 +306,13 @@ fn stop_tracking(data: &mut Vec<TrackingEvent>, description: Option<String>, at:
     if should_add {
         data.push(TrackingEvent::Stop(TrackingData {
             description,
-            time: at.map_or_else(|| Local::now().into(), |at| parse_date_time(&at)),
+            time: at.map_or_else(|| Ok(Local::now().into()), |at| parse_date_time(&at))?,
         }))
     } else {
         eprintln!("Time tracking is already stopped!");
     }
+
+    Ok(())
 }
 
 fn continue_tracking(data: &mut Vec<TrackingEvent>) {
@@ -324,7 +345,7 @@ fn filter_events(
     from: &Option<String>,
     to: &Option<String>,
     filter: &Option<String>,
-) -> Vec<TrackingEvent> {
+) -> Result<Vec<TrackingEvent>> {
     let (filter, from, to) = match filter {
         Some(from) if from == "week" => {
             let now = Local::today();
@@ -344,18 +365,20 @@ fn filter_events(
             (None, Some(from), Some(to))
         }
         f => {
-            let from = from.as_ref().map_or_else(
-                || DateOrDateTime::Date(Local::today().naive_local()),
-                |s| parse_date_or_date_time(&s),
-            );
+            let from = from.as_deref().map_or_else(
+                || Ok(DateOrDateTime::Date(Local::today().naive_local())),
+                parse_date_or_date_time,
+            )?;
 
-            let to = match to {
-                Some(s) => parse_date_or_date_time(&s),
-                None => match from {
-                    DateOrDateTime::DateTime(from) => DateOrDateTime::Date(from.date()),
-                    from @ DateOrDateTime::Date(..) => from,
-                },
-            };
+            let to = to
+                .as_deref()
+                .map(parse_date_or_date_time)
+                .unwrap_or_else(|| {
+                    Ok(match from {
+                        DateOrDateTime::DateTime(from) => DateOrDateTime::Date(from.date()),
+                        from @ DateOrDateTime::Date(..) => from,
+                    })
+                })?;
             (f.clone(), Some(from), Some(to))
         }
     };
@@ -419,7 +442,8 @@ fn filter_events(
             },
         })
         .skip_while(|entry| TrackingEvent::is_stop(entry));
-    data_iterator.cloned().collect()
+
+    Ok(data_iterator.cloned().collect())
 }
 
 fn get_time_from_events(data: &[TrackingEvent], include_seconds: bool) -> Duration {
@@ -472,9 +496,9 @@ fn show(
     include_seconds: bool,
     plain: bool,
     remaining: bool,
-) {
+) -> Result<()> {
     let FilterData { from, to, filter } = filter;
-    let data = filter_events(data, &from, &to, &filter);
+    let data = filter_events(data, &from, &to, &filter)?;
     let work_time = get_time_from_events(&data, include_seconds);
     let (mut hours, mut minutes, mut seconds) = split_duration(work_time);
 
@@ -485,7 +509,7 @@ fn show(
             let mut remaining_minutes = get_remaining_minutes(&settings, &filter, hours, minutes);
 
             if filter != "week" {
-                let data = filter_events(&data, &None, &None, &Some("week".to_string()));
+                let data = filter_events(&data, &None, &None, &Some("week".to_string()))?;
                 let work_time = get_time_from_events(&data, include_seconds);
                 let (week_hours, week_minutes, _) = split_duration(work_time);
                 let remaining_minutes_week =
@@ -497,7 +521,7 @@ fn show(
             minutes = remaining_minutes - (hours * 60);
         } else {
             eprintln!("Remaining only works when \"from\" and \"to\" are not set and with no filter or filter \"week\"");
-            return;
+            return Ok(());
         }
     }
     let format = format.unwrap_or_else(|| "{hh}:{mm}:{ss}".to_string());
@@ -515,6 +539,8 @@ fn show(
     } else {
         println!("Work Time: {}", time);
     }
+
+    Ok(())
 }
 
 fn status(data: &[TrackingEvent]) {
@@ -584,7 +610,7 @@ fn export_human_readable(path: String, data: &[TrackingEvent]) {
     std::fs::write(path, lines.join("\n")).expect("could not export file");
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let Options { command, data_file } = Options::from_args();
 
     let settings = Settings::new()?;
@@ -600,11 +626,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let data_changed = match command.unwrap_or_default() {
         Command::Start { description, at } => {
-            start_tracking(&settings, &mut data, description, at);
+            start_tracking(&settings, &mut data, description, at)?;
             true
         }
         Command::Stop { description, at } => {
-            stop_tracking(&mut data, description, at);
+            stop_tracking(&mut data, description, at)?;
             true
         }
         Command::Continue => {
@@ -612,7 +638,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             true
         }
         Command::List { filter } => {
-            let data = filter_events(&data, &filter.from, &filter.to, &filter.filter);
+            let data = filter_events(&data, &filter.from, &filter.to, &filter.filter)?;
             for s in get_human_readable(&data) {
                 println!("{}", s);
             }
@@ -637,7 +663,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 include_seconds,
                 plain,
                 remaining,
-            );
+            )?;
             false
         }
         Command::Status => {
@@ -685,75 +711,81 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn parse_date_time(s: &str) -> DateTime<Utc> {
-    if let Ok(time) = NaiveTime::parse_from_str(s, "%H:%M:%S") {
-        let today = Local::today();
-        let date_time = today.and_time(time).unwrap();
-        return date_time.with_timezone(&Utc);
-    }
-    if let Ok(time) = NaiveTime::parse_from_str(&format!("{}:0", s), "%H:%M:%S") {
-        let today = Local::today();
-        let date_time = today.and_time(time).unwrap();
-        return date_time.with_timezone(&Utc);
-    }
-    if let Ok(time) = NaiveTime::parse_from_str(&format!("{}:0:0", s), "%H:%M:%S") {
-        let today = Local::today();
-        let date_time = today.and_time(time).unwrap();
-        return date_time.with_timezone(&Utc);
-    }
-    if let Ok(date_time) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
-        return TimeZone::from_local_datetime(&Local, &date_time)
-            .unwrap()
-            .with_timezone(&Utc);
-    }
-    if let Ok(date_time) = NaiveDateTime::parse_from_str(&format!("{}:0", s), "%Y-%m-%d %H:%M:%S") {
-        return TimeZone::from_local_datetime(&Local, &date_time)
-            .unwrap()
-            .with_timezone(&Utc);
-    }
-    let date_time =
-        NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S").unwrap();
-    TimeZone::from_local_datetime(&Local, &date_time)
-        .unwrap()
-        .with_timezone(&Utc)
+fn parse_date_time(s: &str) -> Result<DateTime<Utc>> {
+    let from_time = |s: &str| NaiveTime::parse_from_str(s, "%H:%M:%S");
+    let from_date_time = |s: &str| Local.datetime_from_str(s, "%Y-%m-%d %H:%M:%S");
+
+    from_time(s)
+        .or_else(|_| from_time(&format!("{}:0", s)))
+        .or_else(|_| from_time(&format!("{}:0:0", s)))
+        .map_err(Into::into)
+        .and_then(|time| Local::today().and_time(time).context("invalid time"))
+        .or_else(|_| {
+            from_date_time(s)
+                .or_else(|_| from_date_time(&format!("{}:0", s)))
+                .or_else(|_| from_date_time(&format!("{}:0:0", s)))
+        })
+        .map(|date_time| date_time.with_timezone(&Utc))
+        .map_err(Into::into)
 }
 
-fn parse_date_or_date_time(s: &str) -> DateOrDateTime {
+fn parse_date_or_date_time(s: &str) -> Result<DateOrDateTime> {
     if let Ok(date) = NaiveDate::parse_from_str(&s, "%Y-%m-%d") {
-        return DateOrDateTime::Date(date);
+        return Ok(date.into());
     }
-    if let Ok(date) =
-        NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S").map(DateOrDateTime::DateTime)
-    {
-        return date;
+    if let Ok(date_time) = NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S") {
+        return Ok(date_time.into());
     }
-    if let Ok(date) = NaiveTime::parse_from_str(&s, "%H:%M:%S")
-        .map(|time| Local::today().and_time(time).unwrap())
-        .map(|date_time| date_time.naive_local())
-        .map(DateOrDateTime::DateTime)
-    {
-        return date;
+
+    parse_date_time(s).map(|date_time| date_time.with_timezone(&Local).naive_local().into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_date_time() {
+        assert_eq!(
+            Local::now().date().and_hms(0, 0, 15).with_timezone(&Utc),
+            parse_date_time("00:00:15").unwrap()
+        );
+        assert_eq!(
+            Local::now().date().and_hms(0, 15, 0).with_timezone(&Utc),
+            parse_date_time("00:15").unwrap()
+        );
+        assert_eq!(
+            Local::now().date().and_hms(15, 0, 0).with_timezone(&Utc),
+            parse_date_time("15").unwrap()
+        );
+
+        assert_eq!(
+            Local.ymd(2021, 4, 1).and_hms(0, 0, 15).with_timezone(&Utc),
+            parse_date_time("2021-04-01 00:00:15").unwrap()
+        );
+        assert_eq!(
+            Local.ymd(2021, 4, 1).and_hms(0, 15, 0).with_timezone(&Utc),
+            parse_date_time("2021-04-01 00:15").unwrap()
+        );
+        assert_eq!(
+            Local.ymd(2021, 4, 1).and_hms(15, 0, 0).with_timezone(&Utc),
+            parse_date_time("2021-04-01 15").unwrap()
+        );
     }
-    if let Ok(date) = NaiveTime::parse_from_str(&format!("{}:0", s), "%H:%M:%S")
-        .map(|time| Local::today().and_time(time).unwrap())
-        .map(|date_time| date_time.naive_local())
-        .map(DateOrDateTime::DateTime)
-    {
-        return date;
+
+    #[test]
+    fn test_parse_date_or_date_time() {
+        assert_eq!(
+            DateOrDateTime::Date(NaiveDate::from_ymd(2020, 4, 1)),
+            parse_date_or_date_time("2020-04-01").unwrap()
+        );
+        assert_eq!(
+            DateOrDateTime::DateTime(NaiveDate::from_ymd(2020, 4, 1).and_hms(12, 15, 20)),
+            parse_date_or_date_time("2020-04-01 12:15:20").unwrap()
+        );
+        assert_eq!(
+            DateOrDateTime::DateTime(NaiveDate::from_ymd(2020, 4, 1).and_hms(12, 0, 0)),
+            parse_date_or_date_time("2020-04-01 12").unwrap()
+        );
     }
-    if let Ok(date) = NaiveTime::parse_from_str(&format!("{}:0:0", s), "%H:%M:%S")
-        .map(|time| Local::today().and_time(time).unwrap())
-        .map(|date_time| date_time.naive_local())
-        .map(DateOrDateTime::DateTime)
-    {
-        return date;
-    }
-    if let Ok(date) = NaiveDateTime::parse_from_str(&format!("{}:0", s), "%Y-%m-%d %H:%M:%S")
-        .map(DateOrDateTime::DateTime)
-    {
-        return date;
-    }
-    NaiveDateTime::parse_from_str(&format!("{}:0:0", s), "%Y-%m-%d %H:%M:%S")
-        .map(DateOrDateTime::DateTime)
-        .unwrap()
 }
