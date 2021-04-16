@@ -582,7 +582,7 @@ fn to_human_readable<Tz: TimeZone>(prefix: &str, time: &DateTime<Tz>, descriptio
         .map(|d| format!(" \"{}\"", d))
         .unwrap_or_default();
     format!(
-        "{}{} at {:04}.{:02}.{:02}-{:02}:{:02}:{:02}",
+        "{}{} at {:04}-{:02}-{:02} {:02}:{:02}:{:02}",
         prefix,
         description,
         time.year(),
