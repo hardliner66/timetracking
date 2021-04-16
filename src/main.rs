@@ -473,7 +473,11 @@ fn get_data_as_days(data: &[TrackingEvent]) -> Vec<Vec<TrackingEvent>> {
 
 const CHECKED_ADD_DURATION_ERROR: &str = "couldn't add up durations";
 
-fn get_time_from_day(settings: &Settings, data: &[TrackingEvent], include_seconds: bool) -> Duration {
+fn get_time_from_day(
+    settings: &Settings,
+    data: &[TrackingEvent],
+    include_seconds: bool,
+) -> Duration {
     let mut data_iterator = data.iter();
     let mut work_day = Duration::zero();
     let mut first = None;
@@ -524,12 +528,18 @@ fn get_time_from_day(settings: &Settings, data: &[TrackingEvent], include_second
     work_day
 }
 
-fn get_time_from_events(settings: &Settings, data: &[TrackingEvent], include_seconds: bool) -> Duration {
+fn get_time_from_events(
+    settings: &Settings,
+    data: &[TrackingEvent],
+    include_seconds: bool,
+) -> Duration {
     let days = get_data_as_days(data);
     let mut time = Duration::zero();
     for day in days {
         let time_for_day = get_time_from_day(&settings, &day, include_seconds);
-        time = time.checked_add(&time_for_day).expect(CHECKED_ADD_DURATION_ERROR);
+        time = time
+            .checked_add(&time_for_day)
+            .expect(CHECKED_ADD_DURATION_ERROR);
     }
     time
 }
@@ -566,8 +576,10 @@ fn show(
             let mut remaining_minutes = get_remaining_minutes(&settings, &filter, hours, minutes);
 
             if filter != "week" {
-                let filtered_data_week = filter_events(&data, &None, &None, &Some("week".to_string()))?;
-                let week_work_time = get_time_from_events(&settings, &filtered_data_week, include_seconds);
+                let filtered_data_week =
+                    filter_events(&data, &None, &None, &Some("week".to_string()))?;
+                let week_work_time =
+                    get_time_from_events(&settings, &filtered_data_week, include_seconds);
                 let (week_hours, week_minutes, _) = split_duration(week_work_time);
                 let remaining_minutes_week =
                     get_remaining_minutes(&settings, "week", week_hours, week_minutes);
@@ -583,11 +595,7 @@ fn show(
             return Ok(());
         }
     }
-    let seconds_final = if include_seconds {
-        seconds
-    } else {
-        0
-    };
+    let seconds_final = if include_seconds { seconds } else { 0 };
     let format = format.unwrap_or_else(|| "{hh}:{mm}:{ss}".to_string());
     let time = format
         .replace("{hh}", &format!("{:02}", hours))
@@ -639,20 +647,24 @@ fn status(data: &[TrackingEvent]) {
     }
 }
 
-fn to_human_readable<Tz: TimeZone>(prefix: &str, time: &DateTime<Tz>, description: Option<String>) -> String {
+fn to_human_readable<Tz: TimeZone>(
+    prefix: &str,
+    time: &DateTime<Tz>,
+    description: Option<String>,
+) -> String {
     let description = description
         .map(|d| format!(" \"{}\"", d))
         .unwrap_or_default();
     format!(
-        "{}{} at {:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        "{} at {:04}-{:02}-{:02} {:02}:{:02}:{:02}{}",
         prefix,
-        description,
         time.year(),
         time.month(),
         time.day(),
         time.hour(),
         time.minute(),
-        time.second()
+        time.second(),
+        description,
     )
 }
 
