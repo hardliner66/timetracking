@@ -565,8 +565,6 @@ fn show(
             seconds = 0;
             let mut remaining_minutes = get_remaining_minutes(&settings, &filter, hours, minutes);
 
-            dbg!(remaining_minutes);
-
             if filter != "week" {
                 let filtered_data_week = filter_events(&data, &None, &None, &Some("week".to_string()))?;
                 let week_work_time = get_time_from_events(&settings, &filtered_data_week, include_seconds);
