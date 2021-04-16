@@ -498,8 +498,8 @@ fn show(
     remaining: bool,
 ) -> Result<()> {
     let FilterData { from, to, filter } = filter;
-    let data = filter_events(data, &from, &to, &filter)?;
-    let work_time = get_time_from_events(&data, include_seconds);
+    let filtered_data = filter_events(data, &from, &to, &filter)?;
+    let work_time = get_time_from_events(&filtered_data, include_seconds);
     let (mut hours, mut minutes, mut seconds) = split_duration(work_time);
 
     let filter = filter.clone().unwrap_or_default();
@@ -509,9 +509,9 @@ fn show(
             let mut remaining_minutes = get_remaining_minutes(&settings, &filter, hours, minutes);
 
             if filter != "week" {
-                let data = filter_events(&data, &None, &None, &Some("week".to_string()))?;
-                let work_time = get_time_from_events(&data, include_seconds);
-                let (week_hours, week_minutes, _) = split_duration(work_time);
+                let filtered_data_week = filter_events(&data, &None, &None, &Some("week".to_string()))?;
+                let week_work_time = get_time_from_events(&filtered_data_week, include_seconds);
+                let (week_hours, week_minutes, _) = split_duration(week_work_time);
                 let remaining_minutes_week =
                     get_remaining_minutes(&settings, "week", week_hours, week_minutes);
                 remaining_minutes = remaining_minutes.min(remaining_minutes_week);
