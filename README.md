@@ -72,7 +72,10 @@ auto_insert_stop = false
 # if true, tt will recursively search parent dirs for project settings
 enable_project_settings = true
 
-# minimum amount of minutes of break time per day
+# minimum amount of minutes of break time per day.
+# if you have less than this amount of break per day,
+# the calculation will automatically add the additional
+# break time needed to get to this number
 min_daily_break = 0
 
 # set the daily time goal
@@ -123,3 +126,8 @@ shell = "sh"
 This is how it looks like:
 
 ![Starship Prompt](https://user-images.githubusercontent.com/2937272/114703152-38f71600-9d25-11eb-8fee-564d2efe2c8e.png)
+
+## Data Format
+The data format is a bincode encoded vector of `TrackingEvent`, which can either be a start or stop event, containing the `DateTime`
+when the event happened and an optional description. If you want to use this data in a 3rd party application, you can export the
+data to json with `tt export data.json`.
