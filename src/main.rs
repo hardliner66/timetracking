@@ -675,7 +675,7 @@ fn get_human_readable(data: &[TrackingEvent]) -> Vec<String> {
                 to_human_readable("Start", &time.with_timezone(&Local), description.clone())
             }
             TrackingEvent::Stop(TrackingData { time, description }) => {
-                to_human_readable("Stop", &time.with_timezone(&Local), description.clone())
+                to_human_readable("Stop ", &time.with_timezone(&Local), description.clone())
             }
         })
         .collect::<Vec<_>>()
