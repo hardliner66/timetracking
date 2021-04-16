@@ -577,7 +577,7 @@ fn status(data: &[TrackingEvent]) {
     }
 }
 
-fn to_human_readable(prefix: &str, time: &DateTime<Utc>, description: Option<String>) -> String {
+fn to_human_readable<Tz: TimeZone>(prefix: &str, time: &DateTime<Tz>, description: Option<String>) -> String {
     let description = description
         .map(|d| format!(" \"{}\"", d))
         .unwrap_or_default();
@@ -598,10 +598,10 @@ fn get_human_readable(data: &[TrackingEvent]) -> Vec<String> {
     data.iter()
         .map(|event| match event {
             TrackingEvent::Start(TrackingData { time, description }) => {
-                to_human_readable("Start", time, description.clone())
+                to_human_readable("Start", &time.with_timezone(&Local), description.clone())
             }
             TrackingEvent::Stop(TrackingData { time, description }) => {
-                to_human_readable("Stop", time, description.clone())
+                to_human_readable("Stop", &time.with_timezone(&Local), description.clone())
             }
         })
         .collect::<Vec<_>>()
