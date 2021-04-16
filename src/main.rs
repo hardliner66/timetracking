@@ -511,11 +511,11 @@ fn get_time_from_day(settings: &Settings, data: &[TrackingEvent], include_second
             (_, _) => break,
         }
     }
-    if let Some(min_break) = settings.min_daily_break {
+    if settings.min_daily_break > 0 {
         let now = Utc::now();
         let total = last.unwrap_or(now) - first.unwrap_or(now);
         let pause = total - work_day;
-        let min_break_duration = Duration::minutes(i64::from(min_break));
+        let min_break_duration = Duration::minutes(i64::from(settings.min_daily_break));
         if pause < min_break_duration {
             let difference = min_break_duration - pause;
             work_day = work_day - difference;
