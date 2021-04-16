@@ -446,35 +446,92 @@ fn filter_events(
     Ok(data_iterator.cloned().collect())
 }
 
-fn get_time_from_events(data: &[TrackingEvent], include_seconds: bool) -> Duration {
+fn get_data_as_days(data: &[TrackingEvent]) -> Vec<Vec<TrackingEvent>> {
+    if data.is_empty() {
+        return vec![];
+    }
+
+    let mut current_day = data.first().unwrap().time(true).date();
+    let mut result = Vec::new();
+    let mut current = Vec::new();
+    for d in data {
+        let date = d.time(true).date();
+        if current_day == date {
+            current.push(d.clone());
+        } else {
+            result.push(current);
+            current = Vec::new();
+            current.push(d.clone());
+            current_day = date;
+        }
+    }
+    if !current.is_empty() {
+        result.push(current);
+    }
+    return result;
+}
+
+const CHECKED_ADD_DURATION_ERROR: &str = "couldn't add up durations";
+
+fn get_time_from_day(settings: &Settings, data: &[TrackingEvent], include_seconds: bool) -> Duration {
     let mut data_iterator = data.iter();
     let mut work_day = Duration::zero();
+    let mut first = None;
+    let mut last = None;
     loop {
         let start = data_iterator.next();
         let stop = data_iterator.next();
         match (start, stop) {
             (Some(start), Some(stop)) => {
+                if let None = first {
+                    first = Some(start.time(include_seconds));
+                }
+                last = Some(stop.time(include_seconds));
                 let duration = stop.time(include_seconds) - start.time(include_seconds);
                 work_day = work_day
                     .checked_add(&duration)
-                    .expect("couldn't add up durations");
+                    .expect(CHECKED_ADD_DURATION_ERROR);
             }
             (Some(start), None) => {
+                if let None = first {
+                    first = Some(start.time(include_seconds));
+                }
                 let now = if include_seconds {
                     Utc::now()
                 } else {
                     Utc::now().with_second(0).unwrap()
                 };
+                last = Some(now);
                 let duration = now - start.time(include_seconds);
                 work_day = work_day
                     .checked_add(&duration)
-                    .expect("couldn't add up durations");
+                    .expect(CHECKED_ADD_DURATION_ERROR);
                 break;
             }
             (_, _) => break,
         }
     }
+    if let Some(min_break) = settings.min_daily_break {
+        let now = Utc::now();
+        let total = last.unwrap_or(now) - first.unwrap_or(now);
+        let pause = total - work_day;
+        let min_break_duration = Duration::minutes(i64::from(min_break));
+        if pause < min_break_duration {
+            let difference = min_break_duration - pause;
+            work_day = work_day - difference;
+        }
+    }
     work_day
+}
+
+fn get_time_from_events(settings: &Settings, data: &[TrackingEvent], include_seconds: bool) -> Duration {
+    let days = get_data_as_days(data);
+    let mut time = Duration::zero();
+    for day in days {
+        let time_for_day = get_time_from_day(&settings, &day, include_seconds);
+        time = time.checked_add(&time_for_day).expect(CHECKED_ADD_DURATION_ERROR);
+    }
+    time
 }
 
 fn get_remaining_minutes(settings: &Settings, filter: &str, hours: i64, minutes: i64) -> i64 {
@@ -499,7 +556,7 @@ fn show(
 ) -> Result<()> {
     let FilterData { from, to, filter } = filter;
     let filtered_data = filter_events(data, &from, &to, &filter)?;
-    let work_time = get_time_from_events(&filtered_data, include_seconds);
+    let work_time = get_time_from_events(&settings, &filtered_data, include_seconds);
     let (mut hours, mut minutes, mut seconds) = split_duration(work_time);
 
     let filter = filter.clone().unwrap_or_default();
@@ -508,9 +565,11 @@ fn show(
             seconds = 0;
             let mut remaining_minutes = get_remaining_minutes(&settings, &filter, hours, minutes);
 
+            dbg!(remaining_minutes);
+
             if filter != "week" {
                 let filtered_data_week = filter_events(&data, &None, &None, &Some("week".to_string()))?;
-                let week_work_time = get_time_from_events(&filtered_data_week, include_seconds);
+                let week_work_time = get_time_from_events(&settings, &filtered_data_week, include_seconds);
                 let (week_hours, week_minutes, _) = split_duration(week_work_time);
                 let remaining_minutes_week =
                     get_remaining_minutes(&settings, "week", week_hours, week_minutes);
@@ -526,14 +585,19 @@ fn show(
             return Ok(());
         }
     }
+    let seconds_final = if include_seconds {
+        seconds
+    } else {
+        0
+    };
     let format = format.unwrap_or_else(|| "{hh}:{mm}:{ss}".to_string());
     let time = format
         .replace("{hh}", &format!("{:02}", hours))
         .replace("{mm}", &format!("{:02}", minutes))
-        .replace("{ss}", &format!("{:02}", seconds))
+        .replace("{ss}", &format!("{:02}", seconds_final))
         .replace("{h}", &format!("{}", hours))
         .replace("{m}", &format!("{}", minutes))
-        .replace("{s}", &format!("{}", seconds));
+        .replace("{s}", &format!("{}", seconds_final));
     if plain {
         println!("{}", time);
     } else if remaining {

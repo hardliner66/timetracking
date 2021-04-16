@@ -21,6 +21,7 @@ pub struct Settings {
     pub auto_insert_stop: bool,
     pub enable_project_settings: bool,
     pub time_goal: TimeGoal,
+    pub min_daily_break: u8,
 }
 
 fn add_file_if_exists(s: &mut Config, file: &str) -> Result<bool, ConfigError> {

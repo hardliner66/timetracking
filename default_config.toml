@@ -7,6 +7,9 @@ auto_insert_stop = false
 # if true, tt will recursively search parent dirs for project settings
 enable_project_settings = true
 
+# minimum amount of minutes of break time per day
+min_daily_break = 0
+
 # set the daily time goal
 [time_goal.daily]
 # work hours to reach in a work day (0-24)
