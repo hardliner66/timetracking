@@ -520,7 +520,7 @@ fn get_time_from_day(
         let total = last.unwrap_or(now) - first.unwrap_or(now);
         let pause = total - work_day;
         let min_break_duration = Duration::minutes(i64::from(settings.min_daily_break));
-        if pause < min_break_duration {
+        if pause > Duration::zero() && pause < min_break_duration {
             let difference = min_break_duration - pause;
             work_day = work_day - difference;
         }
