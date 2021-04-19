@@ -525,7 +525,7 @@ fn get_time_from_day(
             work_day = work_day - difference;
         }
     }
-    work_day
+    work_day.max(Duration::zero())
 }
 
 fn get_time_from_events(
