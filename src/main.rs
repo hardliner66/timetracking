@@ -261,7 +261,7 @@ fn start_tracking(
         None => (true, None),
         Some(event) => (event.is_stop(), event.description()),
     };
-    if should_add {
+    if should_add || at.is_some() {
         data.push(TrackingEvent::Start(TrackingData {
             description,
             time: at.map_or_else(|| Ok(Local::now().into()), |at| parse_date_time(&at))?,
@@ -285,8 +285,6 @@ fn start_tracking(
                 }));
             }
         }
-    } else if settings.auto_insert_stop && at.is_some() {
-        eprintln!("Auto insert for stop events currently not supported with --at");
     } else {
         eprintln!("Time tracking is already running!");
     }
@@ -303,7 +301,7 @@ fn stop_tracking(
         None => true,
         Some(event) => event.is_start(),
     };
-    if should_add {
+    if should_add || at.is_some() {
         data.push(TrackingEvent::Stop(TrackingData {
             description,
             time: at.map_or_else(|| Ok(Local::now().into()), |at| parse_date_time(&at))?,
@@ -483,8 +481,8 @@ fn get_time_from_day(
     let mut first = None;
     let mut last = None;
     loop {
-        let start = data_iterator.next();
-        let stop = data_iterator.next();
+        let start = data_iterator.find(|e| e.is_start());
+        let stop = data_iterator.find(|e| e.is_stop());
         match (start, stop) {
             (Some(start), Some(stop)) => {
                 if let None = first {
@@ -781,6 +779,7 @@ fn main() -> Result<()> {
     };
 
     if data_changed {
+        data.sort_by_key(|e| e.time(true));
         write_data(expanded_path, &data);
     }
 
