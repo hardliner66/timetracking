@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{prelude::*, serde::ts_seconds, Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use iif::iif;
 use serde::{Deserialize, Serialize};
+use std::io;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
@@ -56,6 +57,9 @@ enum Command {
     /// show info from the latest entry. Returns the exit code 0, if the time tracking is currently
     /// active and -1 if not.
     Status,
+
+    /// starts an interactive cleanup session
+    Cleanup,
 
     /// start time tracking
     Start {
@@ -145,7 +149,7 @@ impl Default for Command {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct TrackingData {
     description: Option<String>,
 
@@ -153,7 +157,7 @@ struct TrackingData {
     time: DateTime<Utc>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 enum TrackingEvent {
     Start(TrackingData),
     Stop(TrackingData),
@@ -613,6 +617,101 @@ fn show(
     Ok(())
 }
 
+fn cleanup(data: &[TrackingEvent]) -> Vec<TrackingEvent> {
+    let mut cleaned = Vec::with_capacity(data.len());
+
+    let mut data_iter = data.iter();
+    let mut conflicting = Vec::new();
+
+    let mut is_start = None;
+
+    let mut all_conflicting = Vec::new();
+
+    while let Some(e) = data_iter.next() {
+        match is_start {
+            None => {
+                is_start = Some(e.is_start());
+                cleaned.push(e);
+            }
+            Some(true) => {
+                if e.is_start() {
+                    if conflicting.is_empty() {
+                        conflicting.push(cleaned.pop().unwrap());
+                    }
+                    conflicting.push(e);
+                } else {
+                    if !conflicting.is_empty() {
+                        all_conflicting.push(conflicting);
+                        conflicting = Vec::new();
+                    }
+                    cleaned.push(e);
+                    is_start.replace(false);
+                }
+            }
+            Some(false) => {
+                if e.is_stop() {
+                    if conflicting.is_empty() {
+                        conflicting.push(cleaned.pop().unwrap());
+                    }
+                    conflicting.push(e);
+                } else {
+                    if !conflicting.is_empty() {
+                        all_conflicting.push(conflicting);
+                        conflicting = Vec::new();
+                    }
+                    cleaned.push(e);
+                    is_start.replace(true);
+                }
+            }
+        }
+    }
+
+    for mut conflicting in all_conflicting {
+        let event_type = iif!(conflicting.first().unwrap().is_start(), "start", "stop");
+        println!("Repeated {} events found:", event_type);
+        for (i, event) in conflicting.iter().enumerate() {
+            println!(
+                "({}) {}",
+                i,
+                to_human_readable(
+                    &format!("S{}", &event_type[1..]),
+                    &event.time(true).with_timezone(&Local),
+                    event.description()
+                )
+            );
+        }
+        loop {
+            println!();
+            println!("Please enter the number of the entry to keep (<num>|skip) [default: skip]: ");
+            let mut input = String::new();
+            match io::stdin().read_line(&mut input) {
+                Ok(_) => {
+                    let text = input.trim();
+                    if text == "skip" || text.is_empty() {
+                        cleaned.append(&mut conflicting);
+                        break;
+                    } else {
+                        let parsed: Result<usize, _> = text.parse();
+                        match parsed {
+                            Ok(n) => match conflicting.get(n) {
+                                Some(value) => {
+                                    cleaned.push(value);
+                                    break;
+                                }
+                                None => println!("Please use one of the numbers given above!"),
+                            },
+                            Err(_) => println!("Could not parse number!"),
+                        }
+                    }
+                }
+                Err(_) => println!("Could not read from stdin!"),
+            }
+        }
+    }
+
+    cleaned.iter().map(Clone::clone).cloned().collect()
+}
+
 fn status(data: &[TrackingEvent]) {
     if let Some(event) = data.last() {
         let time = event.time(true).with_timezone(&Local);
@@ -744,6 +843,10 @@ fn main() -> Result<()> {
             status(&data);
             false
         }
+        Command::Cleanup => {
+            data = cleanup(&data);
+            true
+        }
         #[cfg(not(feature = "binary"))]
         Command::Export { path } => {
             let expanded_path = shellexpand::full(&path.to_string_lossy())
@@ -780,6 +883,7 @@ fn main() -> Result<()> {
 
     if data_changed {
         data.sort_by_key(|e| e.time(true));
+        data.dedup();
         write_data(expanded_path, &data);
     }
 
