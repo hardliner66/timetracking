@@ -355,14 +355,10 @@ fn filter_events(
             let offset = weekday.num_days_from_monday();
             let (monday_offset, sunday_offset) = (offset, 6 - offset);
             let from = DateOrDateTime::Date(
-                now.with_day(now.day() - monday_offset)
-                    .unwrap()
-                    .naive_local(),
+                (now - Duration::days(i64::from(monday_offset))).naive_local(),
             );
             let to = DateOrDateTime::Date(
-                now.with_day(now.day() + sunday_offset)
-                    .unwrap()
-                    .naive_local(),
+                (now + Duration::days(i64::from(sunday_offset))).naive_local(),
             );
             (None, Some(from), Some(to))
         }
