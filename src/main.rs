@@ -22,6 +22,10 @@ struct Options {
     #[structopt(short, long)]
     data_file: Option<PathBuf>,
 
+    /// which config file to use.
+    #[structopt(short, long)]
+    config_file: Option<String>,
+
     #[structopt(subcommand)]
     command: Option<Command>,
 }
@@ -581,7 +585,16 @@ fn show(
                 let (week_hours, week_minutes, _) = split_duration(week_work_time);
                 let remaining_minutes_week =
                     get_remaining_minutes(&settings, "week", week_hours, week_minutes);
-                remaining_minutes = remaining_minutes.min(remaining_minutes_week);
+
+                let today = Local::today().weekday();
+                
+                if today == settings.last_day_of_work_week {
+                    // on last day in a work week, always show remaining minutes for week
+                    remaining_minutes = remaining_minutes_week;
+                } else {
+                    // on all other days, show whichever is less
+                    remaining_minutes = remaining_minutes.min(remaining_minutes_week);
+                }
             }
 
             remaining_minutes = remaining_minutes.max(0);
@@ -780,9 +793,9 @@ fn export_human_readable(path: String, data: &[TrackingEvent]) {
 }
 
 fn main() -> Result<()> {
-    let Options { command, data_file } = Options::from_args();
+    let Options { command, data_file, config_file } = Options::from_args();
 
-    let settings = Settings::new()?;
+    let settings = Settings::new(&config_file)?;
 
     let path = match data_file {
         Some(path) => path,

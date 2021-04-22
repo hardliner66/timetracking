@@ -19,9 +19,11 @@ FLAGS:
     -V, --version    Prints version information
 
 OPTIONS:
-    -d, --data-file <data-file>    which data file to use. [default: ~/timetracking.bin]
+    -c, --config-file <config-file>    which config file to use
+    -d, --data-file <data-file>        which data file to use. [default: ~/timetracking.bin]
 
 SUBCOMMANDS:
+    cleanup     starts an interactive cleanup session
     continue    continue time tracking with last description
     export      export data to file
     help        Prints this message or the help of the given subcommand(s)
@@ -77,6 +79,10 @@ enable_project_settings = true
 # the calculation will automatically add the additional
 # break time needed to get to this number
 min_daily_break = 0
+
+# last day of work week as chrono::Weekday.
+# allowed values are: mon, tue, wed, thu, fri, sat and sun
+last_day_of_work_week = "fri"
 
 # set the daily time goal
 [time_goal.daily]

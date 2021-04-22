@@ -13,10 +13,6 @@ enable_project_settings = true
 # break time needed to get to this number
 min_daily_break = 0
 
-# last day of work week as chrono::Weekday.
-# allowed values are: mon, tue, wed, thu, fri, sat and sun
-last_day_of_work_week = "fri"
-
 # set the daily time goal
 [time_goal.daily]
 # work hours to reach in a work day (0-24)

@@ -11,11 +11,7 @@ enable_project_settings = true
 # if you have less than this amount of break per day,
 # the calculation will automatically add the additional
 # break time needed to get to this number
-min_daily_break = 0
-
-# last day of work week as chrono::Weekday.
-# allowed values are: mon, tue, wed, thu, fri, sat and sun
-last_day_of_work_week = "fri"
+min_daily_break = 30
 
 # set the daily time goal
 [time_goal.daily]

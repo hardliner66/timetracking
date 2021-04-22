@@ -1,27 +1,29 @@
 use config::{Config, ConfigError, Environment, File, FileFormat};
+use chrono::Weekday;
 use serde::Deserialize;
 
 use std::path::Path;
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Time {
     pub hours: u8,
     pub minutes: u8,
 }
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct TimeGoal {
     pub daily: Time,
     pub weekly: Time,
 }
 
-#[derive(Default, Debug, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Settings {
     pub data_file: String,
     pub auto_insert_stop: bool,
     pub enable_project_settings: bool,
     pub time_goal: TimeGoal,
     pub min_daily_break: u8,
+    pub last_day_of_work_week: Weekday,
 }
 
 fn add_file_if_exists(s: &mut Config, file: &str) -> Result<bool, ConfigError> {
@@ -39,7 +41,7 @@ fn path_to_string_lossy<P: AsRef<Path>>(path: P) -> String {
 }
 
 impl Settings {
-    pub fn new() -> Result<Self, ConfigError> {
+    pub fn new(config_file: &Option<String>) -> Result<Self, ConfigError> {
         let mut s = Config::new();
 
         // Start off by merging in the "default" configuration file
@@ -81,6 +83,13 @@ impl Settings {
         s.merge(File::with_name(".timetracking.config").required(false))?;
 
         s.merge(Environment::with_prefix("tt"))?;
+
+        if let Some(config_file) = config_file {
+            if !add_file_if_exists(&mut s, config_file)? {
+                eprintln!("Could not find specified config file!");
+                std::process::exit(-2);
+            }
+        }
 
         let daily_hours = s.get_int("time_goal.daily.hours")?;
         s.set("time_goal.daily.hours", daily_hours.min(24))?;
