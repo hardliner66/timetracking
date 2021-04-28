@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{prelude::*, serde::ts_seconds, Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use iif::iif;
 use serde::{Deserialize, Serialize};
-use std::io;
+use std::{fs::File, io::{self, Write}};
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
@@ -238,25 +238,41 @@ fn read_json_data<P: AsRef<Path>>(path: P) -> Result<Vec<TrackingEvent>> {
     Ok(serde_json::from_str(&data)?)
 }
 
-#[cfg(feature = "binary")]
-fn write_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent]) {
-    let data = bincode::serialize(data).expect("could not serialize data");
-    std::fs::write(path, data).expect("could not write data file");
+fn write_with_flush<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()> {
+    let mut f = File::create(path)?;
+    f.write_all(contents.as_ref())?;
+    f.flush()?;
+    Ok(())
 }
 
-fn write_json_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent], pretty: bool) {
+#[cfg(feature = "binary")]
+fn write_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent]) -> Result<()> {
+
+    let data = bincode::serialize(data).expect("could not serialize data");
+
+    let temp_path = path.as_ref().with_extension("bin.bak");
+
+    match write_with_flush(&temp_path, &data) {
+        Ok(_) => {
+            Ok(std::fs::rename(temp_path, path.as_ref())?)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn write_json_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent], pretty: bool) -> Result<()> {
     let data = iif!(
         pretty,
         serde_json::to_string_pretty(data),
         serde_json::to_string(data)
     )
     .expect("could not serialize data");
-    std::fs::write(path, data).expect("could not write data file");
+    Ok(write_with_flush(&path, &data)?)
 }
 
 #[cfg(not(feature = "binary"))]
-fn write_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent]) {
-    write_json_data(path, data, false);
+fn write_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent]) -> Result<()> {
+    write_json_data(path, data, false)
 }
 
 fn start_tracking(
@@ -877,7 +893,7 @@ fn main() -> Result<()> {
             if readable {
                 export_human_readable(expanded_path, &data);
             } else {
-                write_json_data(expanded_path, &data, pretty);
+                write_json_data(expanded_path, &data, pretty).expect("Could not write file");
             }
             false
         }
@@ -893,7 +909,7 @@ fn main() -> Result<()> {
     if data_changed {
         data.sort_by_key(|e| e.time(true));
         data.dedup();
-        write_data(expanded_path, &data);
+        write_data(expanded_path, &data).expect("Could not write file!");
     }
 
     Ok(())
