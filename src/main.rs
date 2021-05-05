@@ -413,7 +413,7 @@ fn filter_events(
                             >= TimeZone::from_local_date(&Local, &from)
                                 .unwrap()
                                 .and_time(NaiveTime::from_hms(0, 0, 0))
-                                .unwrap()
+                                .expect("Failed to add time from date")
                                 .timestamp_millis()
                     }
                     Some(DateOrDateTime::DateTime(from)) => {
@@ -436,7 +436,7 @@ fn filter_events(
                             <= TimeZone::from_local_date(&Local, &to)
                                 .unwrap()
                                 .and_time(NaiveTime::from_hms(23, 59, 59))
-                                .unwrap()
+                                .expect("Failed to add time from date")
                                 .timestamp_millis()
                     }
                     Some(DateOrDateTime::DateTime(to)) => {
@@ -469,7 +469,11 @@ fn get_data_as_days(data: &[TrackingEvent]) -> Vec<Vec<TrackingEvent>> {
         return vec![];
     }
 
-    let mut current_day = data.first().unwrap().time(true).date();
+    let mut current_day = data
+        .first()
+        .expect("Tracking event is empty")
+        .time(true)
+        .date();
     let mut result = Vec::new();
     let mut current = Vec::new();
     for d in data {
@@ -661,7 +665,9 @@ fn cleanup(data: &[TrackingEvent]) -> Vec<TrackingEvent> {
             Some(true) => {
                 if e.is_start() {
                     if conflicting.is_empty() {
-                        conflicting.push(cleaned.pop().unwrap());
+                        if let Some(last_cleaned_e) = cleaned.pop() {
+                            conflicting.push(last_cleaned_e);
+                        }
                     }
                     conflicting.push(e);
                 } else {
@@ -676,7 +682,9 @@ fn cleanup(data: &[TrackingEvent]) -> Vec<TrackingEvent> {
             Some(false) => {
                 if e.is_stop() {
                     if conflicting.is_empty() {
-                        conflicting.push(cleaned.pop().unwrap());
+                        if let Some(last_cleaned_e) = cleaned.pop() {
+                            conflicting.push(last_cleaned_e);
+                        }
                     }
                     conflicting.push(e);
                 } else {
@@ -692,7 +700,14 @@ fn cleanup(data: &[TrackingEvent]) -> Vec<TrackingEvent> {
     }
 
     for mut conflicting in all_conflicting {
-        let event_type = iif!(conflicting.first().unwrap().is_start(), "start", "stop");
+        let event_type = iif!(
+            conflicting
+                .first()
+                .expect("Nothing first tracking event founded")
+                .is_start(),
+            "start",
+            "stop"
+        );
         println!("Repeated {} events found:", event_type);
         for (i, event) in conflicting.iter().enumerate() {
             println!(
