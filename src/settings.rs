@@ -1,5 +1,5 @@
-use config::{Config, ConfigError, Environment, File, FileFormat};
 use chrono::Weekday;
+use config::{Config, ConfigError, Environment, File, FileFormat};
 use serde::Deserialize;
 
 use std::path::Path;
@@ -24,6 +24,8 @@ pub struct Settings {
     pub time_goal: TimeGoal,
     pub min_daily_break: u8,
     pub last_day_of_work_week: Weekday,
+    #[cfg(feature = "scripting")]
+    pub script_file: Option<String>,
 }
 
 fn add_file_if_exists(s: &mut Config, file: &str) -> Result<bool, ConfigError> {

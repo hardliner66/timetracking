@@ -1,9 +1,17 @@
 use anyhow::{Context, Result};
 use chrono::{prelude::*, serde::ts_seconds, Duration, NaiveDate, NaiveDateTime, NaiveTime};
+use dict_derive::IntoPyObject;
 use iif::iif;
+use pyo3::{
+    prelude::*,
+    types::PyModule,
+};
 use serde::{Deserialize, Serialize};
-use std::{fs::File, io::{self, Write}};
 use std::path::{Path, PathBuf};
+use std::{
+    fs::File,
+    io::{self, Write},
+};
 use structopt::StructOpt;
 
 mod settings;
@@ -203,6 +211,40 @@ impl TrackingEvent {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, IntoPyObject)]
+struct TrackingDataForScripting {
+    description: Option<String>,
+    time: i64,
+}
+
+impl From<TrackingData> for TrackingDataForScripting {
+    fn from(d: TrackingData) -> Self {
+        TrackingDataForScripting {
+            description: d.description,
+            time: d.time.timestamp(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, IntoPyObject)]
+struct TrackingEventForScripting {
+    pub typ: String,
+    pub data: TrackingDataForScripting,
+}
+
+impl From<TrackingEvent> for TrackingEventForScripting {
+    fn from(e: TrackingEvent) -> Self {
+        let (typ, data) = match e {
+            TrackingEvent::Start(d) => ("start", d),
+            TrackingEvent::Stop(d) => ("stop", d),
+        };
+        TrackingEventForScripting {
+            typ: typ.to_string(),
+            data: data.into(),
+        }
+    }
+}
+
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[derive(Debug, Clone, Copy)]
 enum DateOrDateTime {
@@ -247,15 +289,12 @@ fn write_with_flush<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io:
 
 #[cfg(feature = "binary")]
 fn write_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent]) -> Result<()> {
-
     let data = bincode::serialize(data).expect("could not serialize data");
 
     let temp_path = path.as_ref().with_extension("bin.bak");
 
     match write_with_flush(&temp_path, &data) {
-        Ok(_) => {
-            Ok(std::fs::rename(temp_path, path.as_ref())?)
-        }
+        Ok(_) => Ok(std::fs::rename(temp_path, path.as_ref())?),
         Err(e) => Err(e.into()),
     }
 }
@@ -275,6 +314,43 @@ fn write_data<P: AsRef<Path>>(path: P, data: &[TrackingEvent]) -> Result<()> {
     write_json_data(path, data, false)
 }
 
+#[cfg(feature = "scripting")]
+fn run_event_script(script_path: &str, py: Python, e: TrackingEventForScripting) -> PyResult<()> {
+    let script = std::fs::read_to_string(&script_path)?;
+    let p = Path::new(&script_path);
+    let name = p.file_name().unwrap_or_default().to_string_lossy().replace(
+        &p.extension()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
+        "",
+    );
+    let event_script = PyModule::from_code(py, &script, &format!("{}.py", name), &name)?;
+
+    event_script.call1("on_event", (e,))?;
+
+    Ok(())
+}
+
+#[cfg(feature = "scripting")]
+fn add_event(settings: &Settings, data: &mut Vec<TrackingEvent>, e: TrackingEvent) {
+    if let Some(script_file) = &settings.script_file {
+        Python::with_gil(|py| {
+            let _ = run_event_script(&script_file, py, e.clone().into()).map_err(|e| {
+                // We can't display Python exceptions via std::fmt::Display,
+                // so print the error here manually.
+                e.print_and_set_sys_last_vars(py);
+            });
+        });
+    }
+    data.push(e);
+}
+
+#[cfg(not(feature = "scripting"))]
+fn add_event(settings: &Settings, data: &mut Vec<TrackingEvent>, e: TrackingEvent) {
+    data.push(e);
+}
+
 fn start_tracking(
     settings: &Settings,
     data: &mut Vec<TrackingEvent>,
@@ -286,10 +362,14 @@ fn start_tracking(
         Some(event) => (event.is_stop(), event.description()),
     };
     if should_add || at.is_some() {
-        data.push(TrackingEvent::Start(TrackingData {
-            description,
-            time: at.map_or_else(|| Ok(Local::now().into()), |at| parse_date_time(&at))?,
-        }));
+        add_event(
+            settings,
+            data,
+            TrackingEvent::Start(TrackingData {
+                description,
+                time: at.map_or_else(|| Ok(Local::now().into()), |at| parse_date_time(&at))?,
+            }),
+        );
     } else if settings.auto_insert_stop && at.is_none() {
         match (description, last_description) {
             (Some(description), Some(last_description)) if description == last_description => {
@@ -299,14 +379,22 @@ fn start_tracking(
                 )
             }
             (description, _) => {
-                data.push(TrackingEvent::Stop(TrackingData {
-                    description: None,
-                    time: Local::now().into(),
-                }));
-                data.push(TrackingEvent::Start(TrackingData {
-                    description,
-                    time: Local::now().into(),
-                }));
+                add_event(
+                    settings,
+                    data,
+                    TrackingEvent::Stop(TrackingData {
+                        description: None,
+                        time: Local::now().into(),
+                    }),
+                );
+                add_event(
+                    settings,
+                    data,
+                    TrackingEvent::Start(TrackingData {
+                        description,
+                        time: Local::now().into(),
+                    }),
+                );
             }
         }
     } else {
@@ -317,6 +405,7 @@ fn start_tracking(
 }
 
 fn stop_tracking(
+    settings: &Settings,
     data: &mut Vec<TrackingEvent>,
     description: Option<String>,
     at: Option<String>,
@@ -326,10 +415,14 @@ fn stop_tracking(
         Some(event) => event.is_start(),
     };
     if should_add || at.is_some() {
-        data.push(TrackingEvent::Stop(TrackingData {
-            description,
-            time: at.map_or_else(|| Ok(Local::now().into()), |at| parse_date_time(&at))?,
-        }))
+        add_event(
+            settings,
+            data,
+            TrackingEvent::Stop(TrackingData {
+                description,
+                time: at.map_or_else(|| Ok(Local::now().into()), |at| parse_date_time(&at))?,
+            }),
+        )
     } else {
         eprintln!("Time tracking is already stopped!");
     }
@@ -337,15 +430,19 @@ fn stop_tracking(
     Ok(())
 }
 
-fn continue_tracking(data: &mut Vec<TrackingEvent>) {
+fn continue_tracking(settings: &Settings, data: &mut Vec<TrackingEvent>) {
     if let Some(TrackingEvent::Stop { .. }) = data.last() {
         if let Some(TrackingEvent::Start(TrackingData { description, .. })) =
             data.iter().rev().find(|t| t.is_start()).cloned()
         {
-            data.push(TrackingEvent::Start(TrackingData {
-                description,
-                time: Local::now().into(),
-            }))
+            add_event(
+                settings,
+                data,
+                TrackingEvent::Start(TrackingData {
+                    description,
+                    time: Local::now().into(),
+                }),
+            )
         }
     } else {
         eprintln!("Time tracking couldn't be continued, because there are no entries. Use the start command instead!");
@@ -603,7 +700,7 @@ fn show(
                     get_remaining_minutes(&settings, "week", week_hours, week_minutes);
 
                 let today = Local::today().weekday();
-                
+
                 if today == settings.last_day_of_work_week {
                     // on last day in a work week, always show remaining minutes for week
                     remaining_minutes = remaining_minutes_week;
@@ -809,7 +906,11 @@ fn export_human_readable(path: String, data: &[TrackingEvent]) {
 }
 
 fn main() -> Result<()> {
-    let Options { command, data_file, config_file } = Options::from_args();
+    let Options {
+        command,
+        data_file,
+        config_file,
+    } = Options::from_args();
 
     let settings = Settings::new(&config_file)?;
 
@@ -828,11 +929,11 @@ fn main() -> Result<()> {
             true
         }
         Command::Stop { description, at } => {
-            stop_tracking(&mut data, description, at)?;
+            stop_tracking(&settings, &mut data, description, at)?;
             true
         }
         Command::Continue => {
-            continue_tracking(&mut data);
+            continue_tracking(&settings, &mut data);
             true
         }
         Command::List { filter } => {
